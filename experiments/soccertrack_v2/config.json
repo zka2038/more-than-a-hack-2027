@@ -1,0 +1,37 @@
+{
+  "status": "scaffold_only",
+  "task": "person_detection_pilot",
+  "path_base": "repository_root",
+  "dataset": {
+    "repo_id": "atomscott/soccertrack-v2",
+    "repo_type": "dataset",
+    "revision": "v1.2",
+    "resolved_revision": null,
+    "files": [],
+    "annotation_subset": "mot",
+    "train_matches": ["117092", "118575"],
+    "validation_matches": ["117093"],
+    "test_matches": ["128057"],
+    "sample_fps": 2,
+    "use_interpolated_ball_as_ground_truth": false
+  },
+  "model": {
+    "architecture": null,
+    "pretrained_weights": null,
+    "classes": ["person"]
+  },
+  "training": {
+    "seed": 42,
+    "max_epochs": 10,
+    "checkpoint_selection_split": "validation"
+  },
+  "evaluation": {
+    "compare_pretrained_baseline": true,
+    "test_only_after_configuration_freeze": true
+  },
+  "paths": {
+    "data_dir": "data/external/soccertrack_v2",
+    "output_dir": "outputs/soccertrack_v2",
+    "report_dir": "experiments/soccertrack_v2/reports"
+  }
+}
