@@ -62,3 +62,7 @@ __pycache__/
 venv/
 env/
 .DS_Store
+
+# -- generated outputs and caches (no-training-approach) --
+outputs/
+*.npz
