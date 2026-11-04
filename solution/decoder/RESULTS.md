@@ -22,3 +22,4 @@ This is a stand-in. DFL's possession flags are not Metrica's, and DFL changes po
 | 3 | + touch evidence (proximity plus velocity change or slow ball) and a carried last-touch team | 0.422 (defaults) | 0.725 | yes |
 | 3b | same as 3, tuned (LOMO, coordinate search) | **0.436** | 0.785 | yes |
 | 4 | + straight-line ball interpolation through gaps of up to 6 s, for team evidence only (D features still see the raw gaps). LOMO at 0/50/150/300 frames/unlimited: .436/.447/**.471**/.462/.460 | **0.471** | 0.832 | yes |
+| 5 | + control evidence (a player within ~1 m moving with the ball). Alone it catches only 20–30% of hand-overs, with few false alarms. LOMO 0.469 / 0.465 from two starting points | 0.469 | 0.812 | **reverted** (no gain) |
