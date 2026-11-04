@@ -31,7 +31,7 @@ def _ball_dropout(rng, half, pitch):
     z = getattr(half, "z", np.zeros(T))
     z = np.nan_to_num(z)
     out = (np.abs(ball[:, 0]) > pitch[0] / 2) | (np.abs(ball[:, 1]) > pitch[1] / 2)
-    hazard = 0.012 * (1 + 0.8 * np.clip(crowd - 1, 0, 4)) * (1 + 2.0 * (z > 1.8)) * (1 + 4 * out)
+    hazard = 0.0085 * (1 + 0.8 * np.clip(crowd - 1, 0, 4)) * (1 + 2.0 * (z > 1.8)) * (1 + 4 * out)
     u = rng.random(T)
     recover = 1 / 40.0  # mean gap ~1.6 s
     mask = np.empty(T, dtype=bool)

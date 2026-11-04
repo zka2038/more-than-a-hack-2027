@@ -26,27 +26,36 @@ import possession_metrics as pm  # noqa: E402
 
 # Five matches to iterate on, two held back and scored once at the very end.
 HOLDOUT = ("DFL-MAT-J03WR9", "DFL-MAT-J03WQQ")
-FEAT_CACHE = os.path.join(dfl.CACHE_DIR, "features")
+DEGRADE_VERSION = 2  # bump whenever degrade.py changes; features are never cached on disk
+DEG_CACHE = os.path.join(dfl.CACHE_DIR, "degraded_v{}".format(DEGRADE_VERSION))
+_MEMO = {}
 
 
 def dev_ids():
     return [m for m in dfl.match_ids() if m not in HOLDOUT]
 
 
-def prepared(match_id, seed=0):
-    """(degraded match, features) for one match, cached on disk."""
-    os.makedirs(FEAT_CACHE, exist_ok=True)
-    path = os.path.join(FEAT_CACHE, "{}_s{}.pkl".format(match_id, seed))
+def degraded(match_id, seed=0):
+    """The degraded copy of one match, cached on disk (it only depends on degrade.py)."""
+    os.makedirs(DEG_CACHE, exist_ok=True)
+    path = os.path.join(DEG_CACHE, "{}_s{}.pkl".format(match_id, seed))
     if os.path.exists(path):
         with open(path, "rb") as handle:
             return pickle.load(handle)
     clean = dfl.load(match_id)
     match = degrade(clean, seed=seed + zlib.crc32(match_id.encode()) % 1000)
-    feats = [features(h, match.pitch) for h in match.halves]
-    item = (match, feats)
     with open(path, "wb") as handle:
-        pickle.dump(item, handle, protocol=pickle.HIGHEST_PROTOCOL)
-    return item
+        pickle.dump(match, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    return match
+
+
+def prepared(match_id, seed=0):
+    """(degraded match, features), memoised in this process only."""
+    key = (match_id, seed)
+    if key not in _MEMO:
+        match = degraded(match_id, seed)
+        _MEMO[key] = (match, [features(h, match.pitch) for h in match.halves])
+    return _MEMO[key]
 
 
 def concat(match, codes_per_half):
