@@ -39,7 +39,7 @@ def emissions(f, p):
     T = f["T"]
     E = np.zeros((T, 3))
     dH, dA, v = f["dH"], f["dA"], f["v"]
-    ok = f["seen"] & ~np.isnan(dH) & ~np.isnan(dA)
+    ok = f["have"] & ~np.isnan(dH) & ~np.isnan(dA)
     m = np.fmin(dH, dA)
     conf = np.exp(-np.nan_to_num(m, nan=99.0) / p["r_ctrl"])
     gate = 1.0 / (1.0 + (np.nan_to_num(v, nan=0.0) / p["v0"]) ** 2)
@@ -49,7 +49,7 @@ def emissions(f, p):
     # Touches: ball within r_touch of a player and either deflected (velocity change) or slow
     # enough to be on that player's foot. Each touch votes for the toucher's team, and the last
     # touch is carried forward so a hand-over lands on the new team's first touch.
-    touch = (f["seen"] & (np.nan_to_num(f["near_d"], nan=99) < p["r_touch"])
+    touch = (f["have"] & (np.nan_to_num(f["near_d"], nan=99) < p["r_touch"])
              & ((np.nan_to_num(f["dv"], nan=0) > p["dv0"])
                 | (np.nan_to_num(f["v"], nan=99) < p["v_drib"])))
     sign = np.where(f["near_team"] == 0, 1.0, -1.0)

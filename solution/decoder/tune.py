@@ -53,17 +53,24 @@ def coordinate_search(data, start=None, rounds=3, keys=None, verbose=False):
     return p, best
 
 
-def lomo(ids, start=None, rounds=3, verbose=True):
-    data = {i: ev.prepared(i) for i in ids}
-    rows = []
-    for held in ids:
-        train = [data[i] for i in ids if i != held]
-        p, fit = coordinate_search(train, start, rounds)
-        m, f = data[held]
-        r = ev.score(m, predict(m, p, f))
-        r.update(match=held, fit=fit)
-        rows.append(r)
-        if verbose:
+def _fold(args):
+    ids, held, start, rounds = args
+    train = [ev.prepared(i) for i in ids if i != held]
+    p, fit = coordinate_search(train, start, rounds)
+    m, f = ev.prepared(held)
+    r = ev.score(m, predict(m, p, f))
+    r.update(match=held, fit=fit, params=p)
+    return r
+
+
+def lomo(ids, start=None, rounds=3, verbose=True, workers=None):
+    """One fold per dev match, run in parallel processes."""
+    import multiprocessing as mp
+    jobs = [(ids, held, start, rounds) for held in ids]
+    with mp.get_context("fork").Pool(workers or min(len(ids), 6)) as pool:
+        rows = pool.map(_fold, jobs)
+    if verbose:
+        for r in rows:
             print("  {match}  test spellF1 {spellF1:.4f}  macroF1 {macroF1:.4f}  "
                   "spells {n_pred}/{n_gt}  (train {fit:.4f})".format(**r), flush=True)
     mean = {k: float(np.mean([r[k] for r in rows])) for k in ("spellF1", "macroF1")}
@@ -76,11 +83,15 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--fit-all", action="store_true")
     ap.add_argument("--rounds", type=int, default=3)
+    ap.add_argument("--save", help="write the --fit-all weights to this JSON file")
     args = ap.parse_args()
     ids = ev.dev_ids()
     if args.fit_all:
         p, s = coordinate_search([ev.prepared(i) for i in ids], rounds=args.rounds, verbose=True)
         print(json.dumps(p, indent=1))
         print("train spellF1 {:.4f}".format(s))
+        if args.save:
+            with open(args.save, "w") as handle:
+                json.dump(p, handle, indent=1, sort_keys=True)
     else:
         lomo(ids, rounds=args.rounds)

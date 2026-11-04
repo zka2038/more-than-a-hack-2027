@@ -20,3 +20,5 @@ This is a stand-in. DFL's possession flags are not Metrica's, and DFL changes po
 | 1 | proximity evidence + out-of-pitch / low-speed D + sticky Viterbi (2 matches, untuned) | 0.078 | 0.433 | yes (scaffold) |
 | 2 | + still-ball, long-gap and gap-at-line D features; coordinate search (4 matches, train fit) | 0.351 | – | yes |
 | 3 | + touch evidence (proximity plus velocity change or slow ball) and a carried last-touch team | 0.422 (defaults) | 0.725 | yes |
+| 3b | same as 3, tuned (LOMO, coordinate search) | **0.436** | 0.785 | yes |
+| 4 | + straight-line ball interpolation through gaps of up to 6 s, for team evidence only (D features still see the raw gaps). LOMO at 0/50/150/300 frames/unlimited: .436/.447/**.471**/.462/.460 | **0.471** | 0.832 | yes |

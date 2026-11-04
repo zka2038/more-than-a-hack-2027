@@ -36,11 +36,29 @@ def runs_of(mask):
     return list(zip(np.flatnonzero(e == 1), np.flatnonzero(e == -1)))
 
 
-def features(half, pitch):
+def interpolate_short_gaps(ball, max_gap):
+    """Straight-line fill of ball gaps up to max_gap frames, both ends observed."""
+    out = ball.copy()
+    seen = ~np.isnan(ball[:, 0])
+    for s, e in runs_of(~seen):
+        if s == 0 or e == len(ball) or e - s > max_gap:
+            continue
+        w = (np.arange(s, e) - (s - 1)) / float(e - (s - 1))
+        out[s:e] = ball[s - 1] + w[:, None] * (ball[e] - ball[s - 1])
+    return out
+
+
+INTERP_MAX = 150  # frames (6 s); 0 disables. LOMO: 0 -> .436, 50 -> .447, 150 -> .471, 300 -> .462
+
+
+def features(half, pitch, interp_max=None):
     ball, players, team = half.ball, half.players, half.team
     T = len(ball)
     L, W = pitch
-    seen = ~np.isnan(ball[:, 0])
+    seen = ~np.isnan(ball[:, 0])   # raw visibility, used by the gap features below
+    m = INTERP_MAX if interp_max is None else interp_max
+    if m:
+        ball = interpolate_short_gaps(ball, m)
     d = np.linalg.norm(players - ball[:, None, :], axis=2)          # (T, P)
     dH = _nanmin_team(d, team == 0)
     dA = _nanmin_team(d, team == 1)
@@ -82,6 +100,7 @@ def features(half, pitch):
     dv[kk: T - kk] = np.linalg.norm(after - before, axis=1) * FPS
     near_d = np.fmin(dH, dA)
     near_team = np.where(np.nan_to_num(dH, nan=99) <= np.nan_to_num(dA, nan=99), 0, 1)
-    return dict(seen=seen, dH=dH, dA=dA, v=v, out=out, mean_speed=mean_speed, still=still,
+    have = ~np.isnan(ball[:, 0])   # observed or interpolated
+    return dict(seen=seen, have=have, dH=dH, dA=dA, v=v, out=out, mean_speed=mean_speed, still=still,
                 gap_len=gap_len, gap_edge=gap_edge, dv=dv, near_d=near_d,
                 near_team=near_team, T=T)
