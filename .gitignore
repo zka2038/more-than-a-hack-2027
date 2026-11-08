@@ -62,3 +62,9 @@ __pycache__/
 venv/
 env/
 .DS_Store
+
+# -- generated outputs (the frame viewer writes match-derived data here) --
+outputs/
+
+# -- personal Claude Code settings (contain local paths) --
+.claude/settings.local.json
