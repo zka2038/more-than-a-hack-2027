@@ -22,6 +22,88 @@ ATD + homography + Smart Tagging (+ video)
 
 ---
 
+## Hard rules — read before writing any code
+
+A rule breach disqualifies the submission, and no spellF1 gain is worth that. These hold on every
+branch, for every person and every agent. Sources: `RULES.md`, `FAQ.md`, `SUBMISSION.md`, and the
+LLM clause in `OVERVIEW.md`. If an idea sits near one of these lines, open an issue and ask the
+organisers before building on it.
+
+**1. BAR-ATH ground truth never trains, tunes or selects anything.** That covers the public 5
+minutes (`evaluation/gt/BAR-ATH_possession_gt_public.csv` and its `_meta.json`) and the private
+full match. It is never used for:
+- training labels, pseudo-label seeds, or calibrating any probability;
+- choosing a hyperparameter, threshold, window, switch cost, minimum duration or lag;
+- early stopping, model selection, or picking between two branches or versions;
+- a number read off it and baked into the code (an offset, a duration, a count, a class share).
+
+It **is** for one correctness check per frozen candidate: frames aligned, `H`/`A` not swapped, file
+well-formed, score clearly above the baseline. If that check exposes a bug, fix the bug; never
+nudge a parameter until the public score looks better. Its qualitative conventions may be read once
+by a human and written down as words, not numbers (§6).
+
+**2. Everything learned is learned from other games.** Every model is trained, every parameter
+tuned and every probability calibrated on external matches with their own ground truth (DFL open
+data, Metrica sample games; §6). Self-supervision on BAR-ATH is allowed only where no person decides
+any target, for example hiding observed ball positions and scoring the fill (§3). Before using an
+external dataset, confirm it does not contain this match (Barcelona v Athletic, LaLiga 2024-25,
+matchday 2) and record its source, licence and who labelled it, for the technical document.
+
+**3. No hand labels or hand corrections on BAR-ATH, in any amount.** That means:
+- no labelling frames;
+- no fixing ball positions or tracklet identities by hand;
+- no editing our own output;
+- no rules or constants tied to frames someone watched (`if 52000 < f < 52300: ...`).
+
+Watching the video or the frame viewer to understand the data and design features is fine.
+Turning what you saw into frame-specific labels, corrections or constants is not. The only frame
+constants allowed are the boundaries the organisers publish (the graded halves, via
+`games.half_video_blocks`). The published second-half kickoff frame checks S1's detection and is
+never an input.
+
+**4. No human-produced data about this match** from any source: no event data (Opta, StatsBomb,
+Wyscout, LaLiga or anyone else), corrected tracking, possession statistics or annotations. Smart
+Tagging is fine: it is automatic and supplied for this purpose.
+
+**5. Match data never reaches a cloud-hosted LLM.** The terms forbid making "any videos, datasets
+… or any extracts thereof" available to one, and that includes the coding agent writing this
+pipeline. In practice:
+- Agents never open `data/`, `outputs/`, `evaluation/gt/`, or any frame-level file produced from
+  BAR-ATH: stage `.npz`/`.csv` files, submissions, frame-viewer pages.
+- Agents never run a command that reads those files, because tool output goes back to the model.
+- A human runs real-data commands in a separate terminal, not through the agent's shell and not
+  with an in-chat `!` command.
+- What goes back to an agent is pass/fail and coarse aggregates only: validator OK, scores on the
+  external benchmark, at most a BAR-ATH possession count. Never rows, arrays, plots, screenshots,
+  video frames, or tracebacks that print data values; scrub those first. When in doubt, share nothing.
+- Keep `data/` and `outputs/` out of cloud-synced folders (OneDrive, Dropbox, Google Drive), which
+  may run their own AI indexing over files. If the repo lives in one, set `MTAH_DATA_DIR` and
+  `--stages` to a local path.
+
+**6. Nothing match-derived is committed or published.** `data/`, `outputs/` and
+`evaluation/results/*.csv` stay gitignored. No model or parameter file fitted on BAR-ATH is
+committed: anything self-supervised on BAR-ATH is refitted by the pipeline at run time. Weights
+trained on external data may be committed if that data's licence allows it.
+
+**7. The repository regenerates the submitted file exactly.** That needs:
+- pinned dependencies with exact versions, including the GPU stack;
+- fixed seeds;
+- external-trained weights committed;
+- deterministic inference (on CPU, or deterministic GPU kernels);
+- one command: `python -m solution.pipeline.run_all --out evaluation/results/<team_name>.csv`.
+
+Before submitting, run that command twice from a clean clone and check the two files are
+byte-identical.
+
+**Guard in code.** `tests/test_rules.py` fails in either case:
+- anything under `solution/` references `evaluation/gt`, `possession_gt` or `--gt`;
+- git tracks a data-like file (`.npz`, `.npy`, `.pkl`, `.parquet`, `.csv`) that is not an
+  organiser-committed file and not on an explicit allow-list of external-trained weights.
+
+Run it before every merge to `main`.
+
+---
+
 ## 0. What the metric and the ground truth force on us
 
 Read this before designing anything; every stage has a consequence here.
@@ -51,9 +133,13 @@ tracking marks the ball dead, otherwise the team it names as owner. Possession c
 **controlled** possession: a touch, a deflection or an aerial duel won without control does not
 flip it; a loose ball stays with the last team. This is exactly the S3 → S4 split below.
 
-**Published reference numbers** (sanity checks only, never tuning targets): the public 5 minutes
-hold 17 possessions (mean 14.2 s) and 21 segments, so only 4 stoppages; about 20% of frames are
-`D`. A full match at that rate is roughly 300–360 possessions. If our output has 800, it is wrong.
+**Published reference numbers** are for spotting bugs and are never targets. `DATA.md` says the
+public 5 minutes hold 17 possessions with a mean of 14.2 s, and about 20% of frames are `D`. Do not
+scale these up to a full-match count and steer toward it. The organisers withhold full-match counts
+precisely so nobody tunes to them (`EVALUATION.md`). The only count reference we use comes from
+external matches: Metrica sample games have 300–356 possessions per 90 min (§6). On BAR-ATH a
+count only flags gross breakage. 800 possessions means something upstream is broken; 340 versus 300
+tells us nothing.
 
 **Free facts from the docs:**
 - Graded frames are 11,185–90,651 and 110,808–190,197. Everything else is written `X`.
@@ -62,14 +148,12 @@ hold 17 possessions (mean 14.2 s) and 21 segments, so only 4 stoppages; about 20
 - The ball is missing on 41% of graded frames, mostly where it matters.
 - Track slots are tracklets, not players (46 slots, identity swaps, occasional wrong-team ghosts).
 
-**Rules that shape the work** (`RULES.md`, `FAQ.md`):
-- No hand labels on this match, and no constants tied to specific frames we watched.
-- The public 5 minutes are for checking correctness, **not** for tuning or training.
-- So all tuning and training happens on **other matches** (see §6).
-- Self-supervision on BAR-ATH is allowed (e.g. hide observed ball positions and score the fill).
-- Match data must not be sent to a cloud-hosted LLM. **Agents never read `data/` or frame-level
-  exports in `outputs/`.** Agents write code against the contracts, synthetic fixtures and external
-  matches; a human runs it on the real data.
+**Rules that shape the work:** see *Hard rules* above; they override anything below. Two of them
+shape the design most:
+- All training, tuning and calibration happens on **other matches** (§6). BAR-ATH ground truth,
+  public or private, is never a training or tuning signal.
+- **Agents never see match data.** They write code against the contracts, synthetic fixtures and
+  external matches, and a human runs it on the real data.
 
 **What we already know** (branch `no-training-approach`, `solution/decoder/RESULTS.md`): a learned
 per-frame evidence model plus a sticky Viterbi decoder scores 0.53–0.56 spellF1 on held-out
@@ -96,7 +180,7 @@ when swapped in, on the same benchmark.
 | missing | `NaN` for floats, `-1` for ints |
 | half | `int8 (N,)`: `1`, `2`, or `0` for ungraded frames |
 | intervals | `[start_frame, end_frame)`, end exclusive |
-| probabilities | `float32`, calibrated where possible; every stage ships soft scores **and** a hard decision |
+| probabilities | `float32`, calibrated **on external matches only** (never on BAR-ATH ground truth); every stage ships soft scores **and** a hard decision |
 | storage | `outputs/stages/` (gitignored; never commit, it contains match-derived data) |
 | format | `.npz` for per-frame arrays, `.csv` for event tables; each `.npz` carries a `meta` JSON string (stage, version, git sha, params) |
 
@@ -344,8 +428,10 @@ machine alongside as a cross-check; if the two disagree wildly, something upstre
 
 - Tune the switch cost, minimum durations and control thresholds on **spellF1 on external
   matches**, never on per-frame loss and never on the public window.
-- Watch the possession count and mean duration next to the score. Target the neighbourhood of
-  300–360 possessions and 11–14 s; the count is the fastest failure detector we have.
+- Watch the possession count and mean duration next to the score **on external matches, against
+  their own ground truth**. That is where over- or under-segmentation is measured and corrected. On
+  BAR-ATH the count is only an alarm: a few hundred is plausible, 800 is a bug. Never adjust a
+  parameter to move BAR-ATH's count toward a number.
 - Check for systematic lag with the scorer's transition metrics at τ = 12 vs τ = 25 frames. Good
   at 25 but bad at 12 means a constant delay: fix it with backdating, not smoothing.
 - Short spells: emit one only when its probability is above ~0.5. Both errors (inventing one,
@@ -353,9 +439,12 @@ machine alongside as a cross-check; if the two disagree wildly, something upstre
 - Stretch: minimum-Bayes-risk decoding, i.e. sample segmentations from the model and pick the one
   with the best expected spellF1 against the others.
 
-**Final checks before upload:** `python evaluation/validate_submission.py <file>`; score on the
-public window as a correctness check only (frames aligned, labels the right way round, score well
-above the baseline); second-half pre-kickoff frames are `D`.
+**Final checks before upload:**
+- `python evaluation/validate_submission.py <file>`.
+- Score on the public window as a correctness check only: frames aligned, labels the right way
+  round, score well above the baseline. A human does this once per frozen candidate and never uses
+  it to choose between candidates (Hard rule 1). If it reveals a bug, fix the bug, not a parameter.
+- Second-half pre-kickoff frames are `D`.
 
 ---
 
@@ -380,10 +469,16 @@ there). So:
   | true ball + our S1, S3, S4 | what ball gaps cost |
   | true touches + our S4 | what the possession rules cost |
 
-- **Convention check on the public window** (allowed: it is what the window is for): does the GT
-  flip at the first touch of the new team or later; does `D` start at the line crossing or the
-  whistle; who owns the frames between a duel and the next controlled touch. Read these off once,
-  write them into this file, and build to them. Do not fit numeric thresholds to it.
+- **Convention check on the public window.** This is allowed: `CHALLENGE.md` says to use the
+  window to understand what is expected. Three questions:
+  - Does the GT flip at the first touch of the new team, or later?
+  - Does `D` start at the line crossing or at the whistle?
+  - Who owns the frames between a duel and the next controlled touch?
+
+  A human reads these off once; no agent opens the GT file. Write the answers into this file as
+  words ("flips at the first controlled touch", "`D` starts at the line crossing"), never as
+  measured offsets, durations or counts. Build to the words, and set every number from external
+  matches.
 
 ---
 
@@ -401,8 +496,9 @@ Suggested people split if we are short: S3 and S4 carry the most score, S1 next,
 
 **Order of work:**
 
-1. Merge `pipeline-contracts` to `main`: contracts, S0 cache, four stubs, `run_all`, tests.
-   (Scaffolded; see `solution/pipeline/`.)
+1. Merge `pipeline-contracts` to `main`: contracts, S0 cache, four stubs, `run_all`, tests, and
+   `tests/test_rules.py` (the guard in *Hard rules*). The rest is scaffolded in `solution/pipeline/`;
+   the guard is not written yet.
 2. Run the stub pipeline on the real data once and confirm it writes a valid submission.
 3. Port the external benchmark (Metrica + DFL loaders, degradation, scoring) to `main` so it
    emits the same stage files. Nothing can be compared before this exists.
@@ -411,7 +507,8 @@ Suggested people split if we are short: S3 and S4 carry the most score, S1 next,
 6. Merge a stage to `main` only when it beats the current version of that stage on the benchmark.
 7. Re-run the oracle ladder (§6) after each merge and move effort to the stage that costs most.
 8. Tune S4 on the integrated pipeline, on spellF1 on external matches.
-9. Freeze. Reproduce the submission from a clean clone.
+9. Freeze. Reproduce the submission from a clean clone, twice, and confirm the files are
+   byte-identical (Hard rule 7).
 10. Write the technical document, validate the exact file, submit.
 
 **Integration rule:** `main` always produces a valid submission with one command:
@@ -420,10 +517,15 @@ Suggested people split if we are short: S3 and S4 carry the most score, S1 next,
 python -m solution.pipeline.run_all --out evaluation/results/<team_name>.csv
 ```
 
-**Deliverables checklist** (`SUBMISSION.md`): `<team_name>.csv`; public repo with pinned
-dependencies and the regenerating command, with no match data in it; a short technical document
-(approach, assets used and dropped, external training data and its source, possession rules
-implemented, limitations, reproduction).
+**Deliverables checklist** (`SUBMISSION.md`):
+- `<team_name>.csv`.
+- A public repo with pinned dependencies and the regenerating command. It must contain no match
+  data and nothing fitted on BAR-ATH; `tests/test_rules.py` passes.
+- A short technical document: approach, assets used and dropped, possession rules implemented,
+  limitations, reproduction.
+- In that document, every external dataset: its source, licence, who labelled it and how much, a
+  statement that it does not include this match, and a statement that BAR-ATH ground truth was used
+  only for the correctness check.
 
 ---
 
