@@ -255,6 +255,7 @@ def run_cv(run, cfg=None, device="cuda", members=1):
 
 
 def main():
+    global TRAIN_SEEDS
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--cv", action="store_true")
     parser.add_argument("--final", action="store_true")
@@ -264,6 +265,8 @@ def main():
     parser.add_argument("--decoder", default=None, help="JSON file of tuned decoder params")
     parser.add_argument("--set", nargs="*", default=[], help="config overrides key=value")
     parser.add_argument("--members", type=int, default=1, help="ensemble size (seeds)")
+    parser.add_argument("--copies", type=int, default=len(TRAIN_SEEDS),
+                        help="randomised degradations per training match")
     parser.add_argument("--with-holdout", action="store_true",
                         help="final model only: also train on the two held-out matches")
     args = parser.parse_args()
@@ -271,6 +274,7 @@ def main():
     for kv in args.set:
         k, v = kv.split("=", 1)
         cfg[k] = type(CONFIG[k])(v)
+    TRAIN_SEEDS = tuple(range(1, args.copies + 1))
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if args.cv:
         print("out-of-fold evidence in", run_cv(args.run, cfg, device, args.members))
