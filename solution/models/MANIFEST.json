@@ -1,0 +1,65 @@
+{
+ "file": "possession.pt",
+ "sha256": "d03063af2b0620e1febdb808a4b0fe354dec8b4a63578a690a5b97121900ef0f",
+ "members": 5,
+ "net": {
+  "n_features": 63,
+  "hidden": 128,
+  "layers": 2,
+  "dropout": 0.1,
+  "kernel": 9
+ },
+ "feature_version": 3,
+ "decoder": {
+  "temp": 0.75,
+  "c_sw": 6.0,
+  "c_in": 4,
+  "c_out": 8.0,
+  "beta": 0.0,
+  "prior": 0.0
+ },
+ "train_matches": [
+  "DFL-J03WMX",
+  "DFL-J03WN1",
+  "DFL-J03WOH",
+  "DFL-J03WOY",
+  "DFL-J03WPY",
+  "MET-1",
+  "MET-2",
+  "MET-3",
+  "DFL-J03WR9",
+  "DFL-J03WQQ"
+ ],
+ "train_degradation_seeds": [
+  1,
+  2,
+  3,
+  4
+ ],
+ "train_config": {
+  "hidden": 128,
+  "layers": 2,
+  "dropout": 0.1,
+  "kernel": 9,
+  "steps": 6000,
+  "batch": 32,
+  "chunk": 1024,
+  "lr": 0.002,
+  "weight_decay": 0.0001,
+  "change_weight": 0.5,
+  "swap_p": 0.5,
+  "seed": 4
+ },
+ "data_sources": [
+  "DFL open data, figshare 28196177, CC BY 4.0",
+  "Metrica Sports sample-data, github.com/metrica-sports/sample-data"
+ ],
+ "bar_ath_data_used": false,
+ "bar_ath_ground_truth_used": false,
+ "validation": {
+  "cv_dev_8_matches_3_member_spellF1": 0.7547,
+  "heldout_2_dfl_matches_spellF1_dev_model": 0.7331,
+  "note": "external matches with simulated ATD-like noise; not a BAR-ATH estimate"
+ },
+ "trained_on": "NVIDIA GeForce RTX 5070, torch 2.11.0+cu128"
+}
