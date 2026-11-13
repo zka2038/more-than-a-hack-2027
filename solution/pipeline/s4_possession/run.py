@@ -66,15 +66,52 @@ def decode(half, s1, s3):
     return label, prob
 
 
-def run(stage_dir=None, out_path=None):
+def decode_model(half, s1, s3, params=None, model_path=None):
+    """(label, prob) from S1's dead intervals and the model evidence S3 carries.
+
+    Inside every alive segment, H/A is the Viterbi path over S3's log P(H), log P(A) with the
+    tuned switch cost, lowered where the change probability is high. With D pinned to S1 (which
+    came from the same joint decode) this reproduces the joint H/A/D path exactly.
+    """
+    from solution.model import decode as Dc, infer
+    _, ck = infer.load(model_path)
+    p = dict(ck.get("decoder") or {})
+    p.update(params or {})
+    n = len(half)
+    label = np.full(n, C.X, dtype=np.uint8)
+    label[s1["alive"] == 0] = C.D
+    p_change = np.clip(s3["control"].sum(axis=1).astype(np.float64), 1e-6, 1 - 1e-6)
+    change_logit = np.log(p_change / (1 - p_change))
+    for start, end in C.alive_segments(s1["alive"]):
+        E = np.column_stack([s3["touch_ll"][start:end, 0], s3["touch_ll"][start:end, 1],
+                             np.full(end - start, -1e6)])
+        label[start:end] = Dc.decode_segment(E, change_logit[start:end], p, ck.get("log_prior"))
+    prob = np.full((n, 3), np.nan, dtype=np.float32)
+    graded = label != C.X
+    ph = np.exp(s3["touch_ll"][:, 0].astype(np.float64))
+    pa = np.exp(s3["touch_ll"][:, 1].astype(np.float64))
+    share = ph / np.maximum(ph + pa, 1e-12)
+    p_alive = np.clip(np.nan_to_num(s1["p_alive"], nan=0.0), 0.0, 1.0)
+    prob[graded, C.H] = (p_alive * share)[graded]
+    prob[graded, C.A] = (p_alive * (1.0 - share))[graded]
+    prob[graded, C.D] = (1.0 - p_alive)[graded]
+    return label, prob
+
+
+def run(stage_dir=None, out_path=None, model_path=None):
     s0 = C.load("s0_tracking", stage_dir)
     s1 = C.load("s1_inplay", stage_dir)
     s3 = C.load("s3_touch", stage_dir)
     n = len(s0["half"])
-    label, prob = decode(s0["half"], s1, s3)
+    if s3["meta"].get("params", {}).get("model"):
+        label, prob = decode_model(s0["half"], s1, s3, model_path=model_path)
+        params = {"model": True}
+    else:
+        label, prob = decode(s0["half"], s1, s3)
+        params = {"stub": True, "window": WINDOW}
     s4 = {"prob": prob, "label": label}
     C.check_s4_against_s0(s4, s0)
-    out = [C.save("s4_possession", stage_dir, s4, n=n, params={"stub": True, "window": WINDOW}),
+    out = [C.save("s4_possession", stage_dir, s4, n=n, params=params),
            C.write_submission(out_path or DEFAULT_OUT, label)]
 
     spells = sum(len(C.runs(label == team)) for team in (C.H, C.A))

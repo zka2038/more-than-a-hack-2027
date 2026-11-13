@@ -20,7 +20,7 @@ import torch.nn.functional as F
 
 from solution.pipeline import contracts as C
 from solution.bench import external
-from solution.bench.evaluate import degraded, dev_matches
+from solution.bench.evaluate import degraded, dev_matches, reference_labels
 from solution.model import features as FT
 from solution.model.net import PossessionNet
 
@@ -66,7 +66,7 @@ def ensure_features(jobs, workers=6):
 
 def load_segments(name, seed, randomize):
     with np.load(feature_path(name, seed, randomize)) as d:
-        X, gt, segs = d["X"].astype(np.float32), d["gt"], d["segments"]
+        X, gt, segs = d["X"].astype(np.float32), reference_labels(name, d["gt"]), d["segments"]
     return [(X[s:e], gt[s:e].astype(np.int64)) for s, e in segs]
 
 
@@ -207,7 +207,8 @@ def run_cv(run, cfg=None, device="cuda"):
         model, mean, std, used = train(segs, cfg, device)
         for name in held:
             with np.load(feature_path(name, 0, False)) as d:
-                X, gt, bounds = d["X"].astype(np.float32), d["gt"], d["segments"]
+                X, bounds = d["X"].astype(np.float32), d["segments"]
+                gt = reference_labels(name, d["gt"])
             logp = np.full((len(gt), 3), np.nan, dtype=np.float32)
             change = np.zeros(len(gt), dtype=np.float32)
             for s, e in bounds:
@@ -215,7 +216,8 @@ def run_cv(run, cfg=None, device="cuda"):
             np.savez_compressed(os.path.join(out_dir, name + ".npz"), logp=logp, change=change,
                                 gt=gt, segments=bounds, log_prior=class_log_prior(segs))
     with open(os.path.join(out_dir, "config.json"), "w") as f:
-        json.dump(dict(CONFIG, **(cfg or {})), f, indent=1)
+        from solution.bench import evaluate as EV
+        json.dump(dict(CONFIG, **(cfg or {}), convention=EV.CONVENTION), f, indent=1)
     return out_dir
 
 

@@ -34,6 +34,19 @@ def dev_matches():
     return [m for m in external.match_names() if m not in HOLDOUT]
 
 
+# Possession convention of the reference labels. "controlled" folds DFL's first-touch spells
+# shorter than DFL_CONTROL_FRAMES back into the surrounding possession; 25 frames makes DFL's
+# possession counts match the Metrica games' (an external-to-external calibration).
+CONVENTION = os.environ.get("MTAH_CONVENTION", "controlled")
+DFL_CONTROL_FRAMES = 25
+
+
+def reference_labels(name, gt):
+    if CONVENTION == "controlled" and name.startswith("DFL-"):
+        return external.controlled(gt, DFL_CONTROL_FRAMES)
+    return gt
+
+
 def degraded(name, seed=0, randomize=False):
     """(s0, gt) for one external match under one degradation draw, cached on disk."""
     os.makedirs(BENCH, exist_ok=True)
@@ -72,6 +85,21 @@ def predict_stub(s0):
     return label
 
 
+def predict_pipeline(s0, model_path):
+    """The real stages S1-S4 with the learned model, in memory (what run_all does on BAR-ATH)."""
+    from solution.pipeline.s1_inplay import run as s1m
+    from solution.pipeline.s2_ball import run as s2m
+    from solution.pipeline.s3_touch import run as s3m
+    from solution.pipeline.s4_possession import run as s4m
+    p_alive, alive, _, _ = s1m.decide_model(s0, model_path)
+    s1 = {"p_alive": p_alive, "alive": alive}
+    s2 = s2m.track(s0, s1)
+    s3, _ = s3m.detect(s0, s1, s2)
+    s3["touch_ll"], s3["control"] = s3m.model_evidence(s0, model_path)
+    label, _ = s4m.decode_model(s0["half"], s1, s3, model_path=model_path)
+    return label
+
+
 def score(gt, pred):
     r = pm.evaluate(gt, pred, bootstrap_n=0)
     return {"spell": r["spell_f1_mean"], "macro": r["macro_f1"], "n_pred": r["n_pred_spells"],
@@ -88,9 +116,11 @@ def _job(args):
     elif method == "model":
         from solution.model import infer
         pred = infer.predict(s0, kwargs["model"], params=kwargs.get("decoder"))
+    elif method == "pipeline":
+        pred = predict_pipeline(s0, kwargs["model"])
     else:
         raise KeyError(method)
-    out = score(gt, pred)
+    out = score(reference_labels(name, gt), pred)
     out.update(name=name, seconds=time.time() - t,
                missing=missing_rate(s0, gt))
     return out
@@ -123,7 +153,7 @@ def report(results, title=""):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--method", default="stub", choices=("stub", "model"))
+    parser.add_argument("--method", default="stub", choices=("stub", "model", "pipeline"))
     parser.add_argument("--model", default=None)
     parser.add_argument("--matches", nargs="*", default=None)
     parser.add_argument("--holdout", action="store_true", help="score the held-out matches")

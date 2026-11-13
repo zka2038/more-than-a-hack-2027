@@ -95,13 +95,35 @@ def detect(s0, s1, s2):
     return arrays, table
 
 
-def run(stage_dir=None):
+def model_evidence(s0, model_path=None):
+    """(touch_ll (N,2), control (N,2)) from the learned model.
+
+    touch_ll = log P(H), log P(A) per frame (0 = no evidence, outside the halves).
+    control  = P(possession changes here) split by P(team | alive), so control.sum(axis=1) is the
+               change probability S4 uses to make a real hand-over cheaper to decode.
+    """
+    from solution.model import infer
+    logp, change = infer.evidence(s0, model_path)
+    inside = np.isfinite(logp).all(axis=1)
+    touch_ll = np.where(inside[:, None], logp[:, :2], 0.0).astype(np.float32)
+    p = np.exp(np.where(inside[:, None], logp[:, :2], 0.0))
+    share = p / np.maximum(p.sum(axis=1, keepdims=True), 1e-9)
+    p_change = 1.0 / (1.0 + np.exp(-change.astype(np.float64)))
+    control = np.where(inside[:, None], share * p_change[:, None], 0.0).astype(np.float32)
+    return touch_ll, control
+
+
+def run(stage_dir=None, model_path=None):
     s0 = C.load("s0_tracking", stage_dir)
     s1 = C.load("s1_inplay", stage_dir)
     s2 = C.load("s2_ball", stage_dir)
     n = len(s0["half"])
     arrays, table = detect(s0, s1, s2)
     params = {"stub": True, "reach": REACH, "carry_frames": CARRY_FRAMES, "touch_ll": TOUCH_LL}
+    from solution.pipeline.s1_inplay.run import use_model
+    if use_model(model_path):
+        arrays["touch_ll"], arrays["control"] = model_evidence(s0, model_path)
+        params = {"model": True, "reach": REACH, "carry_frames": CARRY_FRAMES}
     out = [C.save("s3_touch", stage_dir, arrays, params=params, n=n),
            C.save_table("s3_touches", stage_dir, table, n=n)]
     alive = s1["alive"] == 1

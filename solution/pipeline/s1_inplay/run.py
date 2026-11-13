@@ -57,24 +57,56 @@ def to_intervals(p_alive, half):
     return alive
 
 
-def stoppage_table(alive, s0):
+def stoppage_table(alive, s0, team=None):
+    """One row per dead interval. restart_team is the decoded team on the first alive frame."""
     rows = []
     ball = s0["ball_xy"]
     for stop_id, (start, end) in enumerate(C.runs(alive == 0)):
         restart = ball[end] if end < len(ball) else (np.nan, np.nan)
+        restart_team = C.UNKNOWN
+        if team is not None and end < len(alive) and alive[end] == 1:
+            restart_team = int(team[end])
         rows.append({
             "stop_id": stop_id, "start_frame": start, "end_frame": end,
-            "cause": "unknown", "restart_type": "unknown", "restart_team": C.UNKNOWN,
+            "cause": "unknown", "restart_type": "unknown", "restart_team": restart_team,
             "restart_x": float(restart[0]), "restart_y": float(restart[1]), "conf": 0.5,
         })
     return pd.DataFrame(rows, columns=C.TABLE_SCHEMAS["s1_stoppages"])
 
 
-def run(stage_dir=None):
+def decide_model(s0, model_path=None):
+    """(p_alive, alive, restart team per frame, kick-off frames) from the learned evidence.
+
+    alive is the D/not-D part of the joint H/A/D Viterbi decode (solution/model/decode.py), with
+    every frame of a half before its detected kick-off set dead (solution/model/rules.py).
+    """
+    from solution.model import infer, rules
+    logp, change = infer.evidence(s0, model_path)
+    codes = infer.decode(s0, logp, change, model_path=model_path)
+    p_dead = np.exp(logp[:, C.D])
+    codes, kickoffs = rules.apply_kickoffs(s0, codes, p_dead)
+    alive = np.where(s0["half"] == 0, -1, codes != C.D).astype(np.int8)
+    p_alive = np.where(s0["half"] == 0, np.nan, 1.0 - p_dead).astype(np.float32)
+    team = np.where(codes <= C.A, codes, C.UNKNOWN).astype(np.int8)
+    return p_alive, alive, team, kickoffs
+
+
+def use_model(model_path=None):
+    from solution.model import infer
+    return os.path.isfile(model_path or infer.DEFAULT_MODEL)
+
+
+def run(stage_dir=None, model_path=None):
     s0 = C.load("s0_tracking", stage_dir)
     n = len(s0["half"])
-    p_alive = decide(s0)
-    alive = to_intervals(p_alive, s0["half"])
+    team = None
+    if use_model(model_path):
+        p_alive, alive, team, kickoffs = decide_model(s0, model_path)
+        print("S1: learned model; kick-offs detected at {}".format(kickoffs))
+    else:
+        print("S1: no trained model found, using the stub rule")
+        p_alive = decide(s0)
+        alive = to_intervals(p_alive, s0["half"])
     p_alive[alive < 0] = np.nan
     # Keep the soft score on the same side as the hard decision after the duration rules.
     p_alive = np.where(alive == 1, np.maximum(p_alive, 0.5),
@@ -82,10 +114,11 @@ def run(stage_dir=None):
 
     s1 = {"p_alive": p_alive, "alive": alive}
     C.check_s1_against_s0(s1, s0)
-    table = stoppage_table(alive, s0)
+    table = stoppage_table(alive, s0, team)
     C.check_stoppages_against_s1(table, s1)
-    params = {"stub": True, "max_gap": MAX_GAP, "out_margin": OUT_MARGIN,
-              "min_dead": MIN_DEAD, "min_alive": MIN_ALIVE}
+    params = ({"model": True} if team is not None else
+              {"stub": True, "max_gap": MAX_GAP, "out_margin": OUT_MARGIN,
+               "min_dead": MIN_DEAD, "min_alive": MIN_ALIVE})
     out = [C.save("s1_inplay", stage_dir, s1, params=params, n=n),
            C.save_table("s1_stoppages", stage_dir, table, n=n)]
     graded = alive >= 0

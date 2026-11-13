@@ -228,6 +228,40 @@ def load_dfl(match_id):
     return assemble(halves, "DFL-" + match_id, "dfl")
 
 
+# -- convention harmonisation --------------------------------------------------------------------
+
+def controlled(gt, min_frames):
+    """Relabel first-touch possession to a 'controlled' convention (CHALLENGE.md).
+
+    A spell of one team shorter than min_frames, between spells of the other team (or between a
+    spell of the other team and a stoppage), is a touch without control: it is given back to the
+    team that had the ball. Repeated until nothing changes. Spells right after a restart are kept:
+    the restarting team has the ball (PLAN.md section 5, rule 2).
+    """
+    out = gt.copy()
+    changed = True
+    while changed:
+        changed = False
+        alive = (out == C.H) | (out == C.A)
+        for s, e in C.runs(alive):
+            seg = out[s:e]
+            edges = np.flatnonzero(np.diff(seg) != 0) + 1
+            starts = np.concatenate(([0], edges))
+            ends = np.concatenate((edges, [len(seg)]))
+            for i in range(1, len(starts)):          # never the first spell of an alive stretch
+                a, b = starts[i], ends[i]
+                if b - a >= min_frames:
+                    continue
+                prev_team = seg[starts[i - 1]]
+                nxt = seg[b] if b < len(seg) else None
+                if nxt is None or nxt == prev_team:
+                    seg[a:b] = prev_team
+                    changed = True
+                    break
+            out[s:e] = seg
+    return out
+
+
 # -- registry ------------------------------------------------------------------------------------
 
 def match_names():
