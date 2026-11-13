@@ -1,0 +1,15 @@
+# Pinned dependencies of the possession pipeline (solution/). Python 3.12.
+#
+#   python -m pip install -r requirements-solution.txt
+#   python -m solution.pipeline.run_all --out evaluation/results/<team_name>.csv
+#
+# Inference runs on CPU and is deterministic (solution/model/infer.py), so the CPU build of
+# torch reproduces the submission. Training used the CUDA 12.8 build on an RTX 5070:
+#   python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu128
+numpy==2.5.4
+pandas==3.1.1
+scipy==1.18.1
+torch==2.11.0
+numba==0.68.1
+llvmlite==0.50.0
+pytest==9.2.0

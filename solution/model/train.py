@@ -195,9 +195,18 @@ def class_log_prior(segments):
 
 # -- cross-validation ----------------------------------------------------------------------------
 
-def predict_members(models, mean, std, X, device="cuda"):
-    """Ensemble: log of the mean probability, mean change logit."""
+def predict_members(models, mean, std, X, device="cuda", swap_tta=False):
+    """Ensemble: log of the mean probability, mean change logit.
+
+    swap_tta: also predict on the team-swapped frames and swap H/A back (the model should be
+    team-symmetric; averaging both views removes any residual asymmetry).
+    """
     outs = [predict_segment(m, mean, std, X, device) for m in models]
+    if swap_tta:
+        Xs = FT.swap_teams(X)
+        for m in models:
+            lp, ch = predict_segment(m, mean, std, Xs, device)
+            outs.append((lp[:, [1, 0, 2]], ch))
     if len(outs) == 1:
         return outs[0]
     p = np.mean([np.exp(lp) for lp, _ in outs], axis=0)
@@ -227,6 +236,8 @@ def run_cv(run, cfg=None, device="cuda", members=1):
         print("fold {}: train {} | held {}".format(k, train_names, held), flush=True)
         segs = [seg for n in train_names for s in TRAIN_SEEDS for seg in load_segments(n, s, True)]
         models, mean, std, used = train_members(segs, cfg, device, members)
+        save_checkpoint(os.path.join(out_dir, "fold{}.pt".format(k)), models, mean, std, used, {},
+                        train_names, class_log_prior(segs))
         for name in held:
             with np.load(feature_path(name, 0, False)) as d:
                 X, bounds = d["X"].astype(np.float32), d["segments"]
