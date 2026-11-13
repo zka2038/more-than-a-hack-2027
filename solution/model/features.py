@@ -19,7 +19,7 @@ import numpy as np
 
 from solution.pipeline import contracts as C
 
-VERSION = 2
+VERSION = 3
 FPS = C.FPS
 INTERP_MAX = 150     # frames; straight-line ball fill through gaps up to 6 s inside a half
 SENTINEL_D = 40.0    # metres, stands in for "no player / no ball"
@@ -30,7 +30,7 @@ BALL_NAMES = ["b_seen", "b_have", "b_gap", "b_since", "b_until", "b_y", "b_speed
 TEAM_NAMES = (["d{}".format(i + 1) for i in range(K_NEAR)]
               + ["n2", "n5", "n10", "near_speed", "near_rel", "near_approach", "goal_dist",
                  "cen_rel", "cen_vx", "spread_x", "spread_y", "mean_speed", "walk", "visible",
-                 "last_line"])
+                 "last_line", "ball_vx_dir", "behind_share", "press", "d1_trend"])
 GLOBAL_NAMES = ["all_speed", "all_q90", "all_visible", "nearest_team_gap"]
 
 
@@ -209,12 +209,26 @@ def _segment_features(ball_raw, players, team):
             own_goal_x = 0.0 if direction > 0 else L
             depth = np.abs(players[:, m, 0] - own_goal_x)
             last_line = np.nanpercentile(depth, 15, axis=1) if m.any() else np.full(T, np.nan)
+            # Share of the team goal-side of the ball: nearly all of the defending team.
+            ball_depth = np.abs(ball[:, 0] - own_goal_x)
+            behind = np.nansum(depth < ball_depth[:, None], axis=1) / np.maximum(vis, 1)
+            # Opponents within 3 m of this team's player nearest the ball.
+            opp = players[:, team == 1 - k]
+            press = np.nansum(np.linalg.norm(opp - pk[:, None, :], axis=2) < 3.0, axis=1)
+        # Ball velocity along this team's attacking direction (passes mostly go forward).
+        ball_vx_dir = np.clip(np.nan_to_num(bv[:, 0]) * direction, -30, 30)
+        # Is the team's nearest player getting closer to the ball over the last 0.4 s?
+        d1 = np.where(np.isfinite(part[:, 0]), part[:, 0], np.nan)
+        trend = np.zeros(T)
+        trend[10:] = d1[10:] - d1[:-10]
         blocks.append(np.stack([
             near_d[:, 0], near_d[:, 1], near_d[:, 2],
             counts[0], counts[1], counts[2],
             np.where(found, near_speed, 0.0), np.where(found, np.minimum(rel, 40.0), 0.0),
             np.where(found, np.clip(approach, -20, 20), 0.0),
             goal_dist, cen_rel / L, cvx, sx / L, sy / W, ms, walk, vis, last_line / L,
+            ball_vx_dir, np.where(have, behind, 0.0), np.where(found, press, 0.0),
+            np.clip(np.nan_to_num(trend), -10, 10),
         ], axis=1))
 
     with np.errstate(all="ignore"):

@@ -31,29 +31,34 @@ def load(path=None):
         if ck["feature_version"] != FT.VERSION or ck["feature_names"] != FT.names():
             raise ValueError("{} was trained on feature version {}, code has {}".format(
                 path, ck["feature_version"], FT.VERSION))
-        model = PossessionNet(**ck["net"])
-        model.load_state_dict(ck["state_dict"])
-        model.eval()
-        _LOADED[path] = (model, ck)
+        models = []
+        for sd in ck.get("members") or [ck["state_dict"]]:
+            model = PossessionNet(**ck["net"])
+            model.load_state_dict(sd)
+            model.eval()
+            models.append(model)
+        _LOADED[path] = (models, ck)
     return _LOADED[path]
 
 
 def evidence(s0, model_path=None, device="cpu", ball_xy=None):
     """(logp (N,3) float32 with NaN outside the halves, change logit (N,) float32)."""
-    model, ck = load(model_path)
+    from solution.model.train import predict_members
+    models, ck = load(model_path)
     if device == "cpu":
         torch.use_deterministic_algorithms(True)
         torch.set_num_threads(4)
-    model = model.to(device)
+    models = [m.to(device) for m in models]
     X = FT.frame_features(s0, ball_xy)
     N = len(s0["half"])
     logp = np.full((N, 3), np.nan, dtype=np.float32)
     change = np.zeros(N, dtype=np.float32)
     for s, e in FT.segments(s0):
-        lp, ch = predict_segment(model, ck["mean"], ck["std"], X[s:e], device)
+        lp, ch = predict_members(models, ck["mean"], ck["std"], X[s:e], device)
         logp[s:e] = np.round(lp, ROUND)
         change[s:e] = np.round(ch, ROUND)
-    model.to("cpu")
+    for m in models:
+        m.to("cpu")
     return logp, change
 
 

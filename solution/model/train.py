@@ -171,11 +171,13 @@ def predict_segment(model, mean, std, X, device="cuda"):
     return logp, change
 
 
-def save_checkpoint(path, model, mean, std, cfg, decoder, train_names, log_prior):
+def save_checkpoint(path, models, mean, std, cfg, decoder, train_names, log_prior):
+    """One file holding every ensemble member (their probabilities are averaged at inference)."""
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    models = models if isinstance(models, (list, tuple)) else [models]
     torch.save({
-        "state_dict": {k: v.cpu() for k, v in model.state_dict().items()},
-        "net": model.config, "mean": mean, "std": std, "train_config": cfg,
+        "members": [{k: v.cpu() for k, v in m.state_dict().items()} for m in models],
+        "net": models[0].config, "mean": mean, "std": std, "train_config": cfg,
         "feature_names": FT.names(), "feature_version": FT.VERSION, "decoder": decoder,
         "log_prior": log_prior, "train_matches": list(train_names),
         "train_seeds": list(TRAIN_SEEDS), "git_sha": C.git_sha(),
@@ -193,7 +195,27 @@ def class_log_prior(segments):
 
 # -- cross-validation ----------------------------------------------------------------------------
 
-def run_cv(run, cfg=None, device="cuda"):
+def predict_members(models, mean, std, X, device="cuda"):
+    """Ensemble: log of the mean probability, mean change logit."""
+    outs = [predict_segment(m, mean, std, X, device) for m in models]
+    if len(outs) == 1:
+        return outs[0]
+    p = np.mean([np.exp(lp) for lp, _ in outs], axis=0)
+    return np.log(np.maximum(p, 1e-12)).astype(np.float32), \
+        np.mean([ch for _, ch in outs], axis=0).astype(np.float32)
+
+
+def train_members(segs, cfg, device, members=1):
+    models = []
+    for i in range(members):
+        c = dict(cfg or {})
+        c["seed"] = int(c.get("seed", CONFIG["seed"])) + i
+        model, mean, std, used = train(segs, c, device)
+        models.append(model)
+    return models, mean, std, used
+
+
+def run_cv(run, cfg=None, device="cuda", members=1):
     names = dev_matches()
     folds = [[n for n in f if n in names] for f in FOLDS]
     ensure_features([(n, s, True) for n in names for s in TRAIN_SEEDS]
@@ -204,7 +226,7 @@ def run_cv(run, cfg=None, device="cuda"):
         train_names = [n for n in names if n not in held]
         print("fold {}: train {} | held {}".format(k, train_names, held), flush=True)
         segs = [seg for n in train_names for s in TRAIN_SEEDS for seg in load_segments(n, s, True)]
-        model, mean, std, used = train(segs, cfg, device)
+        models, mean, std, used = train_members(segs, cfg, device, members)
         for name in held:
             with np.load(feature_path(name, 0, False)) as d:
                 X, bounds = d["X"].astype(np.float32), d["segments"]
@@ -212,7 +234,7 @@ def run_cv(run, cfg=None, device="cuda"):
             logp = np.full((len(gt), 3), np.nan, dtype=np.float32)
             change = np.zeros(len(gt), dtype=np.float32)
             for s, e in bounds:
-                logp[s:e], change[s:e] = predict_segment(model, mean, std, X[s:e], device)
+                logp[s:e], change[s:e] = predict_members(models, mean, std, X[s:e], device)
             np.savez_compressed(os.path.join(out_dir, name + ".npz"), logp=logp, change=change,
                                 gt=gt, segments=bounds, log_prior=class_log_prior(segs))
     with open(os.path.join(out_dir, "config.json"), "w") as f:
@@ -230,6 +252,9 @@ def main():
                                                       "possession.pt"))
     parser.add_argument("--decoder", default=None, help="JSON file of tuned decoder params")
     parser.add_argument("--set", nargs="*", default=[], help="config overrides key=value")
+    parser.add_argument("--members", type=int, default=1, help="ensemble size (seeds)")
+    parser.add_argument("--with-holdout", action="store_true",
+                        help="final model only: also train on the two held-out matches")
     args = parser.parse_args()
     cfg = {}
     for kv in args.set:
@@ -237,14 +262,15 @@ def main():
         cfg[k] = type(CONFIG[k])(v)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if args.cv:
-        print("out-of-fold evidence in", run_cv(args.run, cfg, device))
+        print("out-of-fold evidence in", run_cv(args.run, cfg, device, args.members))
     if args.final:
-        names = dev_matches()
+        from solution.bench.evaluate import HOLDOUT
+        names = dev_matches() + (list(HOLDOUT) if args.with_holdout else [])
         ensure_features([(n, s, True) for n in names for s in TRAIN_SEEDS])
         segs = [seg for n in names for s in TRAIN_SEEDS for seg in load_segments(n, s, True)]
-        model, mean, std, used = train(segs, cfg, device)
+        models, mean, std, used = train_members(segs, cfg, device, args.members)
         decoder = json.load(open(args.decoder)) if args.decoder else {}
-        save_checkpoint(args.out, model, mean, std, used, decoder, names, class_log_prior(segs))
+        save_checkpoint(args.out, models, mean, std, used, decoder, names, class_log_prior(segs))
         print("saved", args.out)
 
 
