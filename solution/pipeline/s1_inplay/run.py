@@ -92,8 +92,9 @@ def decide_model(s0, model_path=None):
 
 
 def use_model(model_path=None):
+    """True when a trained model is available (MTAH_MODEL=none forces the stub rules)."""
     from solution.model import infer
-    return os.path.isfile(model_path or infer.DEFAULT_MODEL)
+    return infer.available(model_path)
 
 
 def run(stage_dir=None, model_path=None):

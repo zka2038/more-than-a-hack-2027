@@ -14,6 +14,8 @@ import pandas as pd
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+# These checks pin the stub rules' behaviour; the learned model has its own test below.
+os.environ["MTAH_MODEL"] = "none"
 from solution.pipeline import contracts as C  # noqa: E402
 from solution.pipeline import fixtures, run_all  # noqa: E402
 

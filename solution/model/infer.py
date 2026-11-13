@@ -24,8 +24,21 @@ ROUND = 3            # decimals kept on log-probabilities before decoding
 _LOADED = {}
 
 
+def default_model():
+    """The model the stages use: MTAH_MODEL if set ('none' = no model, use the stubs)."""
+    env = os.environ.get("MTAH_MODEL")
+    if env and env.lower() == "none":
+        return None
+    return env or DEFAULT_MODEL
+
+
+def available(path=None):
+    path = path or default_model()
+    return path is not None and os.path.isfile(path)
+
+
 def load(path=None):
-    path = os.path.abspath(path or DEFAULT_MODEL)
+    path = os.path.abspath(path or default_model())
     if path not in _LOADED:
         ck = torch.load(path, map_location="cpu", weights_only=False)
         if ck["feature_version"] != FT.VERSION or ck["feature_names"] != FT.names():

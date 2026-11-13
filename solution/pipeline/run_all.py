@@ -21,18 +21,23 @@ sys.path.insert(0, os.path.join(C.ROOT, "evaluation"))
 import possession_metrics as pm  # noqa: E402
 
 
-def run(stage_dir=None, out_path=None, data_dir=None, n_frames=None, blocks=None, start=0):
-    """Run stages start..4 and return the submission path. Raises if the file is not valid."""
+def run(stage_dir=None, out_path=None, data_dir=None, n_frames=None, blocks=None, start=0,
+        model_path=None):
+    """Run stages start..4 and return the submission path. Raises if the file is not valid.
+
+    model_path: the trained possession model (default solution/models/possession.pt, or the
+    MTAH_MODEL environment variable; MTAH_MODEL=none runs the stub rules).
+    """
     out_path = out_path or s4.DEFAULT_OUT
     if start <= 0:
         s0.run(stage_dir, data_dir=data_dir, n_frames=n_frames, blocks=blocks)
     if start <= 1:
-        s1.run(stage_dir)
+        s1.run(stage_dir, model_path)
     if start <= 2:
         s2.run(stage_dir)
     if start <= 3:
-        s3.run(stage_dir)
-    s4.run(stage_dir, out_path)
+        s3.run(stage_dir, model_path)
+    s4.run(stage_dir, out_path, model_path)
 
     problem = pm.validate_submission(pm.read_label_csv(out_path), n_frames or C.N_FRAMES)
     if problem:
@@ -47,8 +52,10 @@ def main():
     parser.add_argument("--data-dir", default=None, help="match bundle (default: games.DATA_DIR)")
     parser.add_argument("--from", dest="start", type=int, default=0, choices=range(5),
                         help="first stage to run; earlier stage files are reused from --stages")
+    parser.add_argument("--model", default=None, help="possession model checkpoint (.pt)")
     args = parser.parse_args()
-    path = run(args.stages, args.out, data_dir=args.data_dir, start=args.start)
+    path = run(args.stages, args.out, data_dir=args.data_dir, start=args.start,
+               model_path=args.model)
     print("\nvalid submission: {}".format(os.path.relpath(path, C.ROOT)))
     print("score it:  python evaluation/run_evaluation.py")
 
