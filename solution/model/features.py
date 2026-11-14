@@ -19,7 +19,8 @@ import numpy as np
 
 from solution.pipeline import contracts as C
 
-VERSION = 4
+VERSION = 3          # default for training and inference (best on the benchmark)
+LATEST = 4           # newest computable set; older versions are column subsets of it
 K_RAW = 4            # nearest players per team whose raw relative kinematics are given
 FPS = C.FPS
 INTERP_MAX = 150     # frames; straight-line ball fill through gaps up to 6 s inside a half
@@ -57,7 +58,7 @@ def team_slices(version=VERSION):
 def swap_teams(X, version=None):
     """Same frames with the two teams exchanged (and the signed global feature negated)."""
     if version is None:
-        version = 3 if X.shape[-1] == len(names(3)) else VERSION
+        version = 3 if X.shape[-1] == len(names(3)) else LATEST
     s0, s1 = team_slices(version)
     Y = X.copy()
     Y[..., s0], Y[..., s1] = X[..., s1], X[..., s0]
@@ -294,13 +295,13 @@ def frame_features_version(s0, version, ball_xy=None):
         raise ValueError("feature version {} not supported (have {})".format(version, SUPPORTED))
     ball_raw = s0["ball_xy"] if ball_xy is None else ball_xy
     N = len(s0["half"])
-    X = np.zeros((N, len(names())), dtype=np.float32)
+    X = np.zeros((N, len(names(LATEST))), dtype=np.float32)
     for number in (1, 2):
         for start, end in C.runs(s0["half"] == number):
             X[start:end] = _segment_features(ball_raw[start:end], s0["player_xy"][start:end],
                                              s0["player_team"])
-    if version != VERSION:
-        full = {n: i for i, n in enumerate(names())}
+    if version != LATEST:
+        full = {n: i for i, n in enumerate(names(LATEST))}
         X = X[:, [full[n] for n in names(version)]]
     return X
 

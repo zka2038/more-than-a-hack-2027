@@ -110,6 +110,19 @@ window serves only as a final correctness check.
 | single model + Viterbi | 0.730 | — |
 | 3-model ensemble + Viterbi | 0.755 | 0.733 |
 
+Changes tried and dropped. All runs are 3-member, 4-fold CV on the 8 dev matches; anything under
++0.01 is noise.
+
+| change | dev spellF1 | kept |
+|---|---|---|
+| training labels: DFL first-touch vs "controlled" (single model) | 0.732 vs 0.728 | controlled (target convention) |
+| features v3 (+ ball velocity in attacking direction, goal-side share, pressure) and 2× steps | 0.730 vs 0.728 | yes |
+| 8 instead of 4 random degradations per match | 0.756 vs 0.755 | no |
+| spell-balanced loss, (10 s / spell length)^0.5 | 0.752 | no |
+| team-swap test-time augmentation | 0.751 | no |
+| features v4 (raw kinematics of the 4 nearest players per team) | 0.745 | no (overfits) |
+| v4 + dropout 0.3, weight decay 1e-3 | 0.742 | no |
+
 Oracle ladder (3-model run):
 - true dead/alive state: +0.03;
 - true team inside our predicted play: 0.95.
