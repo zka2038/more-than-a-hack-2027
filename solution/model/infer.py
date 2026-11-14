@@ -41,9 +41,10 @@ def load(path=None):
     path = os.path.abspath(path or default_model())
     if path not in _LOADED:
         ck = torch.load(path, map_location="cpu", weights_only=False)
-        if ck["feature_version"] != FT.VERSION or ck["feature_names"] != FT.names():
-            raise ValueError("{} was trained on feature version {}, code has {}".format(
-                path, ck["feature_version"], FT.VERSION))
+        version = ck["feature_version"]
+        if version not in FT.SUPPORTED or ck["feature_names"] != FT.names(version):
+            raise ValueError("{} was trained on feature version {}; code supports {}".format(
+                path, version, FT.SUPPORTED))
         models = []
         for sd in ck.get("members") or [ck["state_dict"]]:
             model = PossessionNet(**ck["net"])
@@ -62,7 +63,7 @@ def evidence(s0, model_path=None, device="cpu", ball_xy=None):
         torch.use_deterministic_algorithms(True)
         torch.set_num_threads(4)
     models = [m.to(device) for m in models]
-    X = FT.frame_features(s0, ball_xy)
+    X = FT.frame_features_version(s0, ck["feature_version"], ball_xy)
     N = len(s0["half"])
     logp = np.full((N, 3), np.nan, dtype=np.float32)
     change = np.zeros(N, dtype=np.float32)

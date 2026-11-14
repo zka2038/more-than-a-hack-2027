@@ -19,7 +19,8 @@ import numpy as np
 
 from solution.pipeline import contracts as C
 
-VERSION = 3
+VERSION = 4
+K_RAW = 4            # nearest players per team whose raw relative kinematics are given
 FPS = C.FPS
 INTERP_MAX = 150     # frames; straight-line ball fill through gaps up to 6 s inside a half
 SENTINEL_D = 40.0    # metres, stands in for "no player / no ball"
@@ -27,27 +28,37 @@ K_NEAR = 3
 
 BALL_NAMES = ["b_seen", "b_have", "b_gap", "b_since", "b_until", "b_y", "b_speed", "b_speed_s",
               "b_dv", "b_out", "b_line_x", "b_line_y", "b_out_last", "b_out_next", "b_still"]
-TEAM_NAMES = (["d{}".format(i + 1) for i in range(K_NEAR)]
-              + ["n2", "n5", "n10", "near_speed", "near_rel", "near_approach", "goal_dist",
-                 "cen_rel", "cen_vx", "spread_x", "spread_y", "mean_speed", "walk", "visible",
-                 "last_line", "ball_vx_dir", "behind_share", "press", "d1_trend"])
+TEAM_NAMES_V3 = (["d{}".format(i + 1) for i in range(K_NEAR)]
+                 + ["n2", "n5", "n10", "near_speed", "near_rel", "near_approach", "goal_dist",
+                    "cen_rel", "cen_vx", "spread_x", "spread_y", "mean_speed", "walk", "visible",
+                    "last_line", "ball_vx_dir", "behind_share", "press", "d1_trend"])
+TEAM_NAMES = (TEAM_NAMES_V3 + ["same_near"]
+              + ["p{}_{}".format(i + 1, q) for i in range(K_RAW)
+                 for q in ("dx", "dy", "rvx", "rvy")])
 GLOBAL_NAMES = ["all_speed", "all_q90", "all_visible", "nearest_team_gap"]
+SUPPORTED = (3, 4)   # older versions are exact column subsets of the newest computation
 
 
-def names():
-    return (BALL_NAMES + ["t0_" + n for n in TEAM_NAMES] + ["t1_" + n for n in TEAM_NAMES]
-            + GLOBAL_NAMES)
+def team_names(version=VERSION):
+    return TEAM_NAMES_V3 if version == 3 else TEAM_NAMES
 
 
-def team_slices():
+def names(version=VERSION):
+    t = team_names(version)
+    return BALL_NAMES + ["t0_" + n for n in t] + ["t1_" + n for n in t] + GLOBAL_NAMES
+
+
+def team_slices(version=VERSION):
     """Column slices of the two team blocks, for the swap augmentation."""
-    b, t = len(BALL_NAMES), len(TEAM_NAMES)
+    b, t = len(BALL_NAMES), len(team_names(version))
     return slice(b, b + t), slice(b + t, b + 2 * t)
 
 
-def swap_teams(X):
+def swap_teams(X, version=None):
     """Same frames with the two teams exchanged (and the signed global feature negated)."""
-    s0, s1 = team_slices()
+    if version is None:
+        version = 3 if X.shape[-1] == len(names(3)) else VERSION
+    s0, s1 = team_slices(version)
     Y = X.copy()
     Y[..., s0], Y[..., s1] = X[..., s1], X[..., s0]
     Y[..., -1] = -X[..., -1]
@@ -221,6 +232,30 @@ def _segment_features(ball_raw, players, team):
         d1 = np.where(np.isfinite(part[:, 0]), part[:, 0], np.nan)
         trend = np.zeros(T)
         trend[10:] = d1[10:] - d1[:-10]
+        # Same tracklet nearest the ball as 0.4 s ago (a carry), only where both are known.
+        slot_ids = np.flatnonzero(m)[j] if m.any() else np.full(T, -1)
+        same = np.zeros(T)
+        same[10:] = (slot_ids[10:] == slot_ids[:-10]) & found[10:] & found[:-10]
+        # Raw kinematics of the K_RAW nearest players, relative to the ball, oriented so that
+        # +dx is toward the goal this team attacks and +dy toward the touchline nearest the ball.
+        side = np.where(ball[:, 1] >= W / 2, 1.0, -1.0)
+        order = np.argsort(dk, axis=1)[:, :K_RAW] if m.any() else np.zeros((T, 0), dtype=int)
+        raw = []
+        team_players, team_vel = players[:, m], pv[:, m]
+        for i in range(K_RAW):
+            if i < order.shape[1]:
+                idx = order[:, i]
+                pos = team_players[rows, idx]
+                vel = team_vel[rows, idx]
+                ok = np.isfinite(dk[rows, idx]) & np.isfinite(pos[:, 0])
+                dx = (pos[:, 0] - ball[:, 0]) * direction
+                dy = (pos[:, 1] - ball[:, 1]) * side
+                rvx = (vel[:, 0] - bv[:, 0]) * direction
+                rvy = (vel[:, 1] - bv[:, 1]) * side
+                for q, lim in ((dx, SENTINEL_D), (dy, SENTINEL_D), (rvx, 20.0), (rvy, 20.0)):
+                    raw.append(np.where(ok, np.clip(np.nan_to_num(q), -lim, lim), 0.0))
+            else:
+                raw.extend([np.zeros(T)] * 4)
         blocks.append(np.stack([
             near_d[:, 0], near_d[:, 1], near_d[:, 2],
             counts[0], counts[1], counts[2],
@@ -228,8 +263,8 @@ def _segment_features(ball_raw, players, team):
             np.where(found, np.clip(approach, -20, 20), 0.0),
             goal_dist, cen_rel / L, cvx, sx / L, sy / W, ms, walk, vis, last_line / L,
             ball_vx_dir, np.where(have, behind, 0.0), np.where(found, press, 0.0),
-            np.clip(np.nan_to_num(trend), -10, 10),
-        ], axis=1))
+            np.clip(np.nan_to_num(trend), -10, 10), same,
+        ] + raw, axis=1))
 
     with np.errstate(all="ignore"):
         all_speed = np.nanmean(ps, axis=1)
@@ -250,6 +285,13 @@ def frame_features(s0, ball_xy=None):
 
     ball_xy: optional replacement ball track (e.g. S2's); defaults to s0's raw ball.
     """
+    return frame_features_version(s0, VERSION, ball_xy)
+
+
+def frame_features_version(s0, version, ball_xy=None):
+    """Features of an older SUPPORTED version: the matching columns of the newest computation."""
+    if version not in SUPPORTED:
+        raise ValueError("feature version {} not supported (have {})".format(version, SUPPORTED))
     ball_raw = s0["ball_xy"] if ball_xy is None else ball_xy
     N = len(s0["half"])
     X = np.zeros((N, len(names())), dtype=np.float32)
@@ -257,6 +299,9 @@ def frame_features(s0, ball_xy=None):
         for start, end in C.runs(s0["half"] == number):
             X[start:end] = _segment_features(ball_raw[start:end], s0["player_xy"][start:end],
                                              s0["player_team"])
+    if version != VERSION:
+        full = {n: i for i, n in enumerate(names())}
+        X = X[:, [full[n] for n in names(version)]]
     return X
 
 

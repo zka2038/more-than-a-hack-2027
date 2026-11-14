@@ -34,7 +34,9 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
 CONFIG = dict(hidden=128, layers=2, dropout=0.1, kernel=9, steps=3000, batch=32, chunk=1024,
-              lr=2e-3, weight_decay=1e-4, change_weight=0.5, swap_p=0.5, seed=0)
+              lr=2e-3, weight_decay=1e-4, change_weight=0.5, swap_p=0.5, seed=0,
+              spell_alpha=0.0)
+SPELL_REF = 250.0    # frames; spells of this length get weight 1 under spell balancing
 
 
 # -- data ----------------------------------------------------------------------------------------
@@ -70,6 +72,23 @@ def load_segments(name, seed, randomize):
     return [(X[s:e], gt[s:e].astype(np.int64)) for s, e in segs]
 
 
+def spell_weights(y, alpha):
+    """Per-frame loss weight (SPELL_REF / spell length) ** alpha, mean 1 over the segment.
+
+    spellF1 counts every possession once, whatever its length; plain per-frame loss lets a
+    100-s possession outweigh a 1-s one a hundredfold. alpha = 0 is the plain loss.
+    """
+    w = np.ones(len(y), dtype=np.float32)
+    if alpha <= 0:
+        return w
+    edges = np.flatnonzero(np.diff(y) != 0) + 1
+    starts = np.concatenate(([0], edges))
+    ends = np.concatenate((edges, [len(y)]))
+    for s, e in zip(starts, ends):
+        w[s:e] = (SPELL_REF / max(e - s, 12)) ** alpha
+    return w / w.mean()
+
+
 def change_target(y):
     c = np.zeros(len(y), dtype=np.float32)
     idx = np.flatnonzero(y[1:] != y[:-1]) + 1
@@ -93,6 +112,7 @@ def train(segments, cfg=None, device="cuda", log_every=500):
     torch.manual_seed(cfg["seed"])
     mean, std = _norm_stats(segments)
     changes = [change_target(y) for _, y in segments]
+    frame_w = [spell_weights(y, cfg["spell_alpha"]) for _, y in segments]
     lengths = np.array([len(y) for _, y in segments], dtype=np.float64)
     weights = lengths / lengths.sum()
     n_feat = segments[0][0].shape[1]
@@ -110,6 +130,7 @@ def train(segments, cfg=None, device="cuda", log_every=500):
         yb = np.full((B, L), -100, dtype=np.int64)
         cb = np.zeros((B, L), dtype=np.float32)
         mb = np.zeros((B, L), dtype=np.float32)
+        wb = np.zeros((B, L), dtype=np.float32)
         for b in range(B):
             k = rng.choice(len(segments), p=weights)
             x, y = segments[k]
@@ -122,12 +143,16 @@ def train(segments, cfg=None, device="cuda", log_every=500):
                 ys = np.where(ys == C.H, C.A, np.where(ys == C.A, C.H, ys))
             n = e - s
             xb[b, :n], cb[b, :n], mb[b, :n] = xs, changes[k][s:e], 1.0
+            wb[b, :n] = frame_w[k][s:e]
             yb[b, :n] = np.where(ys <= C.D, ys, -100)
         x_t = (torch.from_numpy(xb).to(device) - mean_t) / std_t
-        y_t, c_t, m_t = (torch.from_numpy(a).to(device) for a in (yb, cb, mb))
+        y_t, c_t, m_t, w_t = (torch.from_numpy(a).to(device) for a in (yb, cb, mb, wb))
         logits, change = model(x_t)
-        loss_state = F.cross_entropy(logits.float().reshape(-1, 3), y_t.reshape(-1),
-                                     ignore_index=-100)
+        ce = F.cross_entropy(logits.float().reshape(-1, 3), y_t.reshape(-1), ignore_index=-100,
+                             reduction="none")
+        valid = (y_t.reshape(-1) != -100).float()
+        wv = w_t.reshape(-1) * valid
+        loss_state = (ce * wv).sum() / wv.sum().clamp_min(1.0)
         loss_change = (F.binary_cross_entropy_with_logits(change.float(), c_t, reduction="none",
                                                           pos_weight=torch.tensor(4.0,
                                                                                   device=device))
