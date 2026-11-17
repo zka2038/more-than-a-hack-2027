@@ -227,12 +227,17 @@ def predict_members(models, mean, std, X, device="cuda", swap_tta=False):
 
     swap_tta: also predict on the team-swapped frames and swap H/A back (the model should be
     team-symmetric; averaging both views removes any residual asymmetry).
+    mean, std: one normalisation for all members, or a list with one per member (members
+    trained in different runs, merged by solution.model.merge).
     """
-    outs = [predict_segment(m, mean, std, X, device) for m in models]
+    per_member = isinstance(mean, (list, tuple))
+    means = list(mean) if per_member else [mean] * len(models)
+    stds = list(std) if per_member else [std] * len(models)
+    outs = [predict_segment(m, mu, sd, X, device) for m, mu, sd in zip(models, means, stds)]
     if swap_tta:
         Xs = FT.swap_teams(X)
-        for m in models:
-            lp, ch = predict_segment(m, mean, std, Xs, device)
+        for m, mu, sd in zip(models, means, stds):
+            lp, ch = predict_segment(m, mu, sd, Xs, device)
             outs.append((lp[:, [1, 0, 2]], ch))
     if len(outs) == 1:
         return outs[0]

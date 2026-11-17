@@ -64,11 +64,14 @@ def evidence(s0, model_path=None, device="cpu", ball_xy=None):
         torch.set_num_threads(4)
     models = [m.to(device) for m in models]
     X = FT.frame_features_version(s0, ck["feature_version"], ball_xy)
+    # Members merged from different training runs carry their own normalisation.
+    mean = ck["member_mean"] if "member_mean" in ck else ck["mean"]
+    std = ck["member_std"] if "member_std" in ck else ck["std"]
     N = len(s0["half"])
     logp = np.full((N, 3), np.nan, dtype=np.float32)
     change = np.zeros(N, dtype=np.float32)
     for s, e in FT.segments(s0):
-        lp, ch = predict_members(models, ck["mean"], ck["std"], X[s:e], device)
+        lp, ch = predict_members(models, mean, std, X[s:e], device)
         logp[s:e] = np.round(lp, ROUND)
         change[s:e] = np.round(ch, ROUND)
     for m in models:
