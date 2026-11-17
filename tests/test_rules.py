@@ -70,6 +70,9 @@ def test_committed_models_are_external_only():
         assert all(n.startswith(("DFL-", "MET-")) for n in names), \
             "{} was trained on something other than external matches: {}".format(rel, names)
         assert ck.get("data_sources"), "{} does not record its data sources".format(rel)
+        for info in ck.get("member_info") or []:      # ensembles merged from several runs
+            assert all(n.startswith(("DFL-", "MET-")) for n in info["train_matches"]), \
+                "{}: a member was trained on something other than external matches".format(rel)
 
 
 if __name__ == "__main__":
