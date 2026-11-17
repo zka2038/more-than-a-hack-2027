@@ -1,5 +1,18 @@
 # More than a Hack 2027 — Phase 1: Ball Possession
 
+> **Team Barcatabra — our solution.** The pipeline is in [`solution/`](solution), the technical
+> document is [`docs/technical_document.md`](docs/technical_document.md). To regenerate the
+> submission file from the data bundle (unpacked in `./data`, or point `MTAH_DATA_DIR` at it):
+>
+> ```bash
+> python -m pip install -r requirements-solution.txt      # Python 3.12, CPU is enough
+> python -m solution.pipeline.run_all --out evaluation/results/Barcatabra.csv
+> python evaluation/validate_submission.py evaluation/results/Barcatabra.csv
+> ```
+>
+> Inference is deterministic on CPU and uses the committed weights in `solution/models/`, so the
+> command reproduces the submitted file byte for byte. No match data is in this repository.
+
 **Organised by [Metrica Sports](https://metrica-sports.com), [FC Barcelona](https://www.fcbarcelona.com)
 and the [Mobile World Capital Barcelona](https://www.mwcbarcelona.com)**, at the Talent Arena in Barcelona.
 
