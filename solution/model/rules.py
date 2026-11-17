@@ -12,7 +12,9 @@ import numpy as np
 from solution.pipeline import contracts as C
 from solution.model import features as FT
 
-SPOT_RADIUS = 2.5       # metres from the centre spot
+SPOT_RADIUS = 4.0       # metres from the centre spot. The automatic ball detection can sit a
+                        # metre or two off the spot at a kick-off; the centre circle is 9.15 m,
+                        # so 4 m is still unambiguous
 OWN_HALF_SHARE = 0.85   # share of each team's visible players in their own half
 LEAVE_DIST = 4.0        # metres from the spot the ball must reach ...
 LEAVE_FRAMES = 75       # ... within this many frames (3 s)
