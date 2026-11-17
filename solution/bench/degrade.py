@@ -8,6 +8,12 @@ Targets come from what DATA.md publishes about the BAR-ATH ATD, never from its g
   - positions come from a ground-plane homography, so a ball in the air is projected away from
     the camera.
 
+Two profiles. Profile 1 is the original guess (many short gaps). Profile 2 matches the input
+statistics of the real BAR-ATH ATD measured with domain_check.py (no labels involved): about 1.4
+ball gaps per minute with a median of ~270 frames and a 90th percentile of ~850, i.e. the ball is
+lost in a few long gaps rather than many short ones, and it is almost never reported off the pitch
+(2.5% of seen frames, against 13-16% under profile 1), so a ball leaving the field is hidden.
+
 Every draw comes from a seeded generator, so a (match, seed) pair always gives the same data.
 `sample_params(rng)` randomises the knobs around those targets so a model trained on several seeds
 does not overfit one noise setting (domain randomisation); evaluation uses DEFAULTS.
@@ -36,10 +42,27 @@ DEFAULTS = dict(
 )
 
 
-def sample_params(rng):
-    p = dict(DEFAULTS)
+# Profile 2: long gaps (BAR-ATH-like), the ball hidden almost whenever it is off the pitch.
+DEFAULTS_V2 = dict(DEFAULTS, gap_mean=300.0, out_gain=60.0, crowd_gain=0.8, air_gain=2.0,
+                   false_ball=0.0003,   # a spurious detection every ~2 min: they split gaps
+                   out_hide=0.9)        # share of off-pitch excursions hidden entirely
+PROFILES = {1: DEFAULTS, 2: DEFAULTS_V2}
+
+
+def defaults(version=1):
+    return dict(PROFILES[version])
+
+
+def sample_params(rng, version=1):
+    p = defaults(version)
     p["ball_missing"] = float(rng.uniform(0.33, 0.50))
-    p["gap_mean"] = float(rng.uniform(25, 70))
+    if version == 1:
+        p["gap_mean"] = float(rng.uniform(25, 70))
+    else:
+        p["gap_mean"] = float(rng.uniform(180, 550))
+        p["out_gain"] = float(rng.uniform(15, 80))
+        p["out_hide"] = float(rng.uniform(0.75, 0.98))
+        p["false_ball"] = float(rng.uniform(0.0001, 0.0006))
     p["crowd_gain"] = float(rng.uniform(0.3, 1.2))
     p["ball_jitter"] = float(rng.uniform(0.1, 0.45))
     p["player_jitter"] = float(rng.uniform(0.1, 0.4))
@@ -134,14 +157,20 @@ def degrade(s0, gt, info, seed=0, params=None):
            | (clean_ball[:, 1] > W))
     shape = (1 + p["crowd_gain"] * np.clip(crowd - 1, 0, 4)) * (1 + p["air_gain"] * high) \
         * (1 + p["out_gain"] * off)
+    # Off-pitch excursions hidden as a whole: the real ATD rarely reports a ball outside the lines.
+    hidden = np.zeros(T, dtype=bool)
+    for s_, e_ in C.runs(off):
+        if rng.random() < p.get("out_hide", 0.0):
+            hidden[s_:e_] = True
     # Scale the hazard so the missing share on graded frames lands near the target.
     f, L_gap = p["ball_missing"], p["gap_mean"]
+    already = (hidden | np.isnan(clean_ball[:, 0]))
     scale = f / (L_gap * (1 - f)) / max(shape[graded].mean(), 1e-9)
     for _ in range(3):
         mask = _ball_gaps(np.random.default_rng(seed + 7), np.clip(scale * shape, 0, 1), L_gap)
-        got = (mask | np.isnan(clean_ball[:, 0]))[graded].mean()
+        got = (mask | already)[graded].mean()
         scale *= np.clip((f / max(1 - f, 1e-6)) / max(got / max(1 - got, 1e-6), 1e-6), 0.25, 4)
-    mask = _ball_gaps(rng, np.clip(scale * shape, 0, 1), L_gap)
+    mask = _ball_gaps(rng, np.clip(scale * shape, 0, 1), L_gap) | hidden
     ball[mask] = np.nan
 
     # Rare spurious detections: the "ball" jumps onto a random visible player's feet.

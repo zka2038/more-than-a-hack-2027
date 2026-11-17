@@ -55,9 +55,12 @@ and training swaps them at random (with H↔A) so the model cannot learn a home-
 ### Rules on top (`solution/model/rules.py`)
 
 **Kick-off detection.** The second half is graded from before its kick-off, and those frames are all
-`D`. The kick-off is found from tracking alone: the ball on the centre spot with each team in its own
-half, then the ball leaving the spot. It is accepted only if the model already rates the frames
-before it as mostly dead. No frame number is hard-coded.
+`D`. The kick-off is found from tracking alone: the ball within 4 m of the centre spot with each
+team in its own half, then the ball leaving the spot. It is accepted only if the model already rates
+the frames before it as mostly dead. No frame number is hard-coded. (A first version used a 2.5 m
+radius; on the real ATD the detected ball sits a metre or two off the spot at a kick-off, so the
+second-half kick-off was missed. The published anchor was used only to confirm the detection, as
+the rules allow, and the external matches' detections are unchanged.)
 
 ## 2. Assets used and dropped
 
@@ -84,15 +87,31 @@ before it as mostly dead. No frame number is hard-coded.
   the same team (or to a stoppage) are folded back. The 1 s threshold makes DFL's possession counts
   match Metrica's; it was chosen by comparing external matches only.
 
-**Degradation (`solution/bench/degrade.py`).** Clean tracking is made to look like the ATD, using
-only facts published in `DATA.md`:
+**Degradation (`solution/bench/degrade.py`).** Clean tracking is made to look like the ATD:
 - about 41% of the ball missing, in bursts that are likelier in crowds, in the air and off the pitch;
 - ground-plane projection of airborne balls;
 - correlated jitter;
 - player dropouts;
 - wrong-team ghost tracklets.
 
-Training randomises these settings.
+Training randomises these settings. Two profiles exist. Profile 1 was designed from `DATA.md`
+alone (many short gaps). Profile 2 was set after comparing the *input* statistics of the real ATD
+with the simulation (`solution/bench/domain_check.py`; no labels are involved, so this is allowed
+by the rules). The real ATD loses the ball in a few long gaps, not many short ones, and almost never
+reports it off the pitch:
+
+| statistic (graded frames) | profile 1, DFL | profile 2, DFL | profile 2, Metrica | BAR-ATH |
+|---|---|---|---|---|
+| ball missing | 39–41% | 35–48% | 42–48% | 41% |
+| ball gaps per minute | 16–17 | 1.0–1.2 | 2.0–2.2 | 1.4 |
+| median gap (frames) | 24–26 | 330–440 | 150–230 | 268 |
+| 90th-percentile gap (frames) | 80–89 | 1190–1570 | 800–980 | 845 |
+| gaps longer than 6 s | 1–2% | 71–85% | 50–57% | 77% |
+| ball seen off the pitch | 13–16% | 5–6% | 0.1% | 2.5% |
+
+Profile 2 draws the mean gap length between 180 and 550 frames, hides 75–98% of the off-pitch
+excursions whole, and makes spurious detections rare (they split long gaps). The two sources
+bracket BAR-ATH.
 
 **What was never used.** The BAR-ATH ground truth, public or private, was used for no training,
 tuning, calibration or model selection. A guard test (`tests/test_rules.py`) checks this. The public
@@ -144,8 +163,9 @@ do not predict the BAR-ATH score.
 
 ## 6. Limitations
 
-- **Domain gap.** Simulated degradation is not the real ATD. A script compares input statistics
-  (`solution/bench/domain_check.py`), but real-noise performance is unknown.
+- **Domain gap.** Simulated degradation is not the real ATD. Profile 2 matches the real ball-gap
+  statistics far better than profile 1 (table in §3), but player-tracking noise (identity swaps,
+  fragmentation) is still only guessed, and real-noise performance is unknown.
 - **Short possessions** under 2 s are mostly missed, which causes under-segmentation.
 - **Restart team, Smart Tagging, homography** and video re-detection of the ball are not exploited.
 

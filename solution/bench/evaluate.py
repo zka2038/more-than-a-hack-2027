@@ -19,14 +19,15 @@ import numpy as np
 
 from solution.pipeline import contracts as C
 from solution.bench import external
-from solution.bench.degrade import DEFAULTS, degrade, missing_rate, sample_params
+from solution.bench.degrade import defaults, degrade, missing_rate, sample_params
 
 sys.path.insert(0, os.path.join(C.ROOT, "evaluation"))
 import possession_metrics as pm  # noqa: E402
 
 HOLDOUT = ("DFL-J03WR9", "DFL-J03WQQ")
 BENCH = os.path.join(external.CACHE, "bench")
-DEGRADE_VERSION = 1
+# Degradation profile (solution/bench/degrade.py): 1 = original, 2 = BAR-ATH-like long gaps.
+DEGRADE_VERSION = int(os.environ.get("MTAH_DEGRADE", "1"))
 S0_KEYS = tuple(C.NPZ_SCHEMAS["s0_tracking"])
 
 
@@ -57,7 +58,8 @@ def degraded(name, seed=0, randomize=False):
             return {k: data[k] for k in S0_KEYS}, data["gt"]
     s0, gt, info = external.load(name)
     mix = seed * 1000 + zlib.crc32(name.encode()) % 1000
-    params = sample_params(np.random.default_rng(mix)) if randomize else dict(DEFAULTS)
+    params = (sample_params(np.random.default_rng(mix), DEGRADE_VERSION) if randomize
+              else defaults(DEGRADE_VERSION))
     d = degrade(s0, gt, info, seed=mix, params=params)
     np.savez_compressed(path, gt=gt, **d)
     return d, gt

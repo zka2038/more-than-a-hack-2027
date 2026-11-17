@@ -20,7 +20,7 @@ import torch.nn.functional as F
 
 from solution.pipeline import contracts as C
 from solution.bench import external
-from solution.bench.evaluate import degraded, dev_matches, reference_labels
+from solution.bench.evaluate import DEGRADE_VERSION, degraded, dev_matches, reference_labels
 from solution.model import features as FT
 from solution.model.net import PossessionNet
 
@@ -43,7 +43,8 @@ SPELL_REF = 250.0    # frames; spells of this length get weight 1 under spell ba
 
 def feature_path(name, seed, randomize):
     tag = "r" if randomize else "d"
-    return os.path.join(FEAT_DIR, "{}_{}{}_f{}.npz".format(name, tag, seed, FT.VERSION))
+    suffix = "" if DEGRADE_VERSION == 1 else "_g{}".format(DEGRADE_VERSION)
+    return os.path.join(FEAT_DIR, "{}_{}{}_f{}{}.npz".format(name, tag, seed, FT.VERSION, suffix))
 
 
 def build_features(job):
@@ -205,7 +206,8 @@ def save_checkpoint(path, models, mean, std, cfg, decoder, train_names, log_prio
         "net": models[0].config, "mean": mean, "std": std, "train_config": cfg,
         "feature_names": FT.names(), "feature_version": FT.VERSION, "decoder": decoder,
         "log_prior": log_prior, "train_matches": list(train_names),
-        "train_seeds": list(TRAIN_SEEDS), "git_sha": C.git_sha(),
+        "train_seeds": list(TRAIN_SEEDS), "degradation_profile": DEGRADE_VERSION,
+        "git_sha": C.git_sha(),
         "data_sources": ["DFL open data, figshare 28196177, CC BY 4.0",
                          "Metrica Sports sample-data, github.com/metrica-sports/sample-data"],
     }, path)
@@ -294,13 +296,16 @@ def main():
                         help="randomised degradations per training match")
     parser.add_argument("--with-holdout", action="store_true",
                         help="final model only: also train on the two held-out matches")
+    parser.add_argument("--device", default=None, help="cuda | mps | cpu (default: best available)")
     args = parser.parse_args()
     cfg = {}
     for kv in args.set:
         k, v = kv.split("=", 1)
         cfg[k] = type(CONFIG[k])(v)
     TRAIN_SEEDS = tuple(range(1, args.copies + 1))
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = args.device or ("cuda" if torch.cuda.is_available() else
+                             "mps" if torch.backends.mps.is_available() else "cpu")
+    print("device {}, degradation profile {}".format(device, DEGRADE_VERSION), flush=True)
     if args.cv:
         print("out-of-fold evidence in", run_cv(args.run, cfg, device, args.members))
     if args.final:
