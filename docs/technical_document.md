@@ -1,6 +1,7 @@
-# Possession from automatic tracking: technical document (draft)
+# Possession from automatic tracking — Team Barcatabra
 
-> Draft. Final numbers are filled in at freeze; rename to `<team_name>.md` for submission.
+Technical document for *More than a Hack 2027*, phase 1 (ball possession, BAR-ATH). Code:
+the public repository this file comes from; the submission is regenerated with one command (§7).
 
 ## 1. Approach
 
@@ -49,7 +50,9 @@ and training swaps them at random (with H↔A) so the model cannot learn a home-
 - **Network:** a linear layer and a temporal convolution, then a 2-layer bidirectional GRU with
   128 units, then two heads: 3-way state, and "possession changes within ±5 frames".
 - **Training:** about 40-s chunks from external matches, each under several random degradations.
-- **Ensemble:** the shipped checkpoint averages the probabilities of several seed members.
+- **Ensemble:** the shipped checkpoint averages the probabilities of six members, all trained
+  under degradation profile 2 (§3): four on all 10 external matches and two on the 8 development
+  matches only. Each member keeps its own input normalisation (`solution/model/merge.py`).
 - **Inference:** on CPU, deterministic, with probabilities rounded before decoding.
 
 ### Rules on top (`solution/model/rules.py`)
@@ -60,7 +63,9 @@ team in its own half, then the ball leaving the spot. It is accepted only if the
 the frames before it as mostly dead. No frame number is hard-coded. (A first version used a 2.5 m
 radius; on the real ATD the detected ball sits a metre or two off the spot at a kick-off, so the
 second-half kick-off was missed. The published anchor was used only to confirm the detection, as
-the rules allow, and the external matches' detections are unchanged.)
+the rules allow, and the external matches' detections are unchanged.) With the final model only
+the second-half kick-off passes the dead-before test; the first half's graded window starts within
+a few frames of its kick-off, so at most those few frames are affected.
 
 ## 2. Assets used and dropped
 
@@ -111,11 +116,15 @@ reports it off the pitch:
 
 Profile 2 draws the mean gap length between 180 and 550 frames, hides 75–98% of the off-pitch
 excursions whole, and makes spurious detections rare (they split long gaps). The two sources
-bracket BAR-ATH.
+bracket BAR-ATH. **The shipped model is trained under profile 2**; the comparison that chose it is
+in §4.
 
 **What was never used.** The BAR-ATH ground truth, public or private, was used for no training,
 tuning, calibration or model selection. A guard test (`tests/test_rules.py`) checks this. The public
-window serves only as a final correctness check.
+window serves only as a final correctness check (alignment, team orientation), run once per frozen
+candidate. On the first candidate that check also showed `D` being under-predicted. That prompted
+the comparison of input statistics above. Profile 2 was then set from input statistics alone and
+chosen on the external held-out matches, not on the window.
 
 ## 4. Validation
 
@@ -123,14 +132,53 @@ window serves only as a final correctness check.
   were held out and scored once.
 - **Metric:** the official scorer (`evaluation/possession_metrics.py`).
 
+Development under profile-1 noise:
+
 | method | dev spellF1 (8 matches, degraded) | held-out spellF1 (2 DFL) |
 |---|---|---|
 | stub pipeline (≈ published baseline) | 0.330 | — |
 | single model + Viterbi | 0.730 | — |
 | 3-model ensemble + Viterbi | 0.755 | 0.733 |
 
-Changes tried and dropped. All runs are 3-member, 4-fold CV on the 8 dev matches; anything under
-+0.01 is noise.
+**Noise profile.** Two single models, identical except for the degradation profile used in
+training (1 member, 3000 steps, dev matches only, same decoder), were scored on the two held-out DFL
+matches under three degradation seeds of each profile. The rule fixed beforehand: adopt profile 2 if
+it wins by more than 0.02 spellF1 under profile-2 noise.
+
+| trained under | held-out spellF1, profile-2 noise | held-out spellF1, profile-1 noise |
+|---|---|---|
+| profile 1 | 0.629 | 0.708 |
+| profile 2 | **0.674** | 0.649 |
+
+Each model is best on the noise it was trained on, and the ordering holds in all six match/seed
+pairs either way. Under profile-2 noise most of the gain is in the dead/alive state (aliveF1 0.936
+→ 0.976). Since BAR-ATH's input statistics match profile 2 and not profile 1 (§3), profile 2 was
+adopted. Its numbers above are not comparable with the profile-1 CV numbers in the other tables.
+
+**Decoder under profile 2.** The decoder was tuned on profile-1 evidence. To see whether profile 2
+needs different switch costs, it was re-tuned on the profile-2 model's evidence for one held-out
+match (three degradation seeds) and tested on the other, both ways. The gain on the unseen match was
++0.0005 and +0.0036, under the +0.01 bar, so the decoder was kept.
+
+**Old-noise members in the ensemble?** Averaging the profile-2 model with the profile-1 model
+looked attractive (better under both noises than either alone), but averaging *any* two models
+helps. A second dev-only profile-2 model was trained as the control; the rule fixed beforehand:
+add profile-1 members only if new + old is within 0.005 of new + new under profile-2 noise.
+
+| held-out, profile-2 noise | spellF1 | possessions (pred / true) |
+|---|---|---|
+| one profile-2 model (two seeds, mean) | 0.677 | 315 / 339 |
+| two profile-2 models | **0.695** | 302 / 339 |
+| one profile-2 + one profile-1 (both pairings, mean) | 0.686 | 291 / 339 |
+| two profile-2 + one profile-1 | 0.707 | 299 / 339 |
+
+New + old trails new + new by 0.009, so the profile-1 members were left out. The three-model mix
+scores higher, but it also has one more member and there was no third profile-2 model to compare
+it with; this is inconclusive and was not acted on. Ensembles predict fewer possessions than single
+models and still score higher.
+
+Changes tried and dropped. All runs are 3-member, 4-fold CV on the 8 dev matches, under profile 1;
+anything under +0.01 is noise.
 
 | change | dev spellF1 | kept |
 |---|---|---|
@@ -151,6 +199,11 @@ Oracle ladder (3-model run):
 These are scores on *simulated* noise and other matches' label conventions. They rank methods; they
 do not predict the BAR-ATH score.
 
+**Final model and the public window.** The six-member profile-2 ensemble (above) gives 221
+possessions on BAR-ATH (mean 16.1 s; the profile-1 ensemble gave 251). The public window was
+scored once for this frozen candidate, as a correctness check: spellF1 0.622, macroF1 0.840
+(`baseline_smooth50`: 0.326 / 0.621). Nothing was changed after it.
+
 ## 5. Possession rules implemented
 
 - `D` comes from the decoded dead/alive state. `X` is written only on ungraded frames.
@@ -165,7 +218,12 @@ do not predict the BAR-ATH score.
 
 - **Domain gap.** Simulated degradation is not the real ATD. Profile 2 matches the real ball-gap
   statistics far better than profile 1 (table in §3), but player-tracking noise (identity swaps,
-  fragmentation) is still only guessed, and real-noise performance is unknown.
+  fragmentation) is still only guessed, and real-noise performance is unknown. If the real ATD
+  behaved like profile 1 after all (many short ball gaps), the shipped model would lose about 0.06
+  spellF1 against a profile-1 model (§4).
+- **Decoder tuned under profile 1.** A cross-match check found no gain from re-tuning it for
+  profile 2 (§4), but that check rests on two matches; a full profile-2 cross-validation did not
+  fit the time left.
 - **Short possessions** under 2 s are mostly missed, which causes under-segmentation.
 - **Restart team, Smart Tagging, homography** and video re-detection of the ball are not exploited.
 
@@ -173,8 +231,8 @@ do not predict the BAR-ATH score.
 
 ```bash
 python -m pip install -r requirements-solution.txt
-python -m solution.pipeline.run_all --out evaluation/results/<team_name>.csv
-python evaluation/validate_submission.py evaluation/results/<team_name>.csv
+python -m solution.pipeline.run_all --out evaluation/results/Barcatabra.csv
+python evaluation/validate_submission.py evaluation/results/Barcatabra.csv
 ```
 
 To retrain (optional; the committed weights reproduce the file):
@@ -187,3 +245,24 @@ python -m solution.model.train --cv --run cv --members 3 --set steps=6000
 python -m solution.model.tune --run cv --out decoder.json
 python -m solution.model.train --final --with-holdout --members 5 --set steps=6000 --decoder decoder.json
 ```
+
+The shipped model (`solution/models/MANIFEST.json`) was trained under profile 2 with the decoder
+above (`decoder.json`, tuned under profile 1, §4). Each member is its own process, so they ran in
+parallel on a CPU machine, and the six were merged:
+
+```bash
+export MTAH_DEGRADE=2
+for K in 0 1 2 3; do       # all 10 external matches
+  python -m solution.model.train --final --with-holdout --members 1 --set steps=3000 seed=$K \
+      --decoder decoder.json --out member_$K.pt &
+done
+for K in 0 1; do           # 8 development matches (these are the held-out comparison models)
+  python -m solution.model.train --final --members 1 --set steps=3000 seed=$K \
+      --decoder decoder.json --out dev_$K.pt &
+done; wait
+python -m solution.model.merge --out solution/models/possession.pt \
+    member_0.pt member_1.pt member_2.pt member_3.pt dev_0.pt dev_1.pt
+```
+
+Training is not bit-reproducible across machines; inference is (CPU, deterministic), and the
+committed weights reproduce the submission file exactly.
