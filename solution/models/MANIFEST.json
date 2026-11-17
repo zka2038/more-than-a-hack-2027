@@ -1,7 +1,7 @@
 {
  "file": "possession.pt",
- "sha256": "d03063af2b0620e1febdb808a4b0fe354dec8b4a63578a690a5b97121900ef0f",
- "members": 5,
+ "sha256": "1c76065d76a6af5cbb0168dd1886ddd3cae5e07991b17b25516bb6d2302e1e8f",
+ "members": 6,
  "net": {
   "n_features": 63,
   "hidden": 128,
@@ -24,11 +24,11 @@
   "DFL-J03WOH",
   "DFL-J03WOY",
   "DFL-J03WPY",
+  "DFL-J03WQQ",
+  "DFL-J03WR9",
   "MET-1",
   "MET-2",
-  "MET-3",
-  "DFL-J03WR9",
-  "DFL-J03WQQ"
+  "MET-3"
  ],
  "train_degradation_seeds": [
   1,
@@ -36,20 +36,146 @@
   3,
   4
  ],
- "train_config": {
-  "hidden": 128,
-  "layers": 2,
-  "dropout": 0.1,
-  "kernel": 9,
-  "steps": 6000,
-  "batch": 32,
-  "chunk": 1024,
-  "lr": 0.002,
-  "weight_decay": 0.0001,
-  "change_weight": 0.5,
-  "swap_p": 0.5,
-  "seed": 4
- },
+ "degradation_profile": [
+  2
+ ],
+ "per_member_normalisation": true,
+ "member_info": [
+  {
+   "seed": 0,
+   "steps": 3000,
+   "train_matches": [
+    "DFL-J03WMX",
+    "DFL-J03WN1",
+    "DFL-J03WOH",
+    "DFL-J03WOY",
+    "DFL-J03WPY",
+    "MET-1",
+    "MET-2",
+    "MET-3",
+    "DFL-J03WR9",
+    "DFL-J03WQQ"
+   ],
+   "train_seeds": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "degradation_profile": 2
+  },
+  {
+   "seed": 1,
+   "steps": 3000,
+   "train_matches": [
+    "DFL-J03WMX",
+    "DFL-J03WN1",
+    "DFL-J03WOH",
+    "DFL-J03WOY",
+    "DFL-J03WPY",
+    "MET-1",
+    "MET-2",
+    "MET-3",
+    "DFL-J03WR9",
+    "DFL-J03WQQ"
+   ],
+   "train_seeds": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "degradation_profile": 2
+  },
+  {
+   "seed": 2,
+   "steps": 3000,
+   "train_matches": [
+    "DFL-J03WMX",
+    "DFL-J03WN1",
+    "DFL-J03WOH",
+    "DFL-J03WOY",
+    "DFL-J03WPY",
+    "MET-1",
+    "MET-2",
+    "MET-3",
+    "DFL-J03WR9",
+    "DFL-J03WQQ"
+   ],
+   "train_seeds": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "degradation_profile": 2
+  },
+  {
+   "seed": 3,
+   "steps": 3000,
+   "train_matches": [
+    "DFL-J03WMX",
+    "DFL-J03WN1",
+    "DFL-J03WOH",
+    "DFL-J03WOY",
+    "DFL-J03WPY",
+    "MET-1",
+    "MET-2",
+    "MET-3",
+    "DFL-J03WR9",
+    "DFL-J03WQQ"
+   ],
+   "train_seeds": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "degradation_profile": 2
+  },
+  {
+   "seed": 0,
+   "steps": 3000,
+   "train_matches": [
+    "DFL-J03WMX",
+    "DFL-J03WN1",
+    "DFL-J03WOH",
+    "DFL-J03WOY",
+    "DFL-J03WPY",
+    "MET-1",
+    "MET-2",
+    "MET-3"
+   ],
+   "train_seeds": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "degradation_profile": 2
+  },
+  {
+   "seed": 1,
+   "steps": 3000,
+   "train_matches": [
+    "DFL-J03WMX",
+    "DFL-J03WN1",
+    "DFL-J03WOH",
+    "DFL-J03WOY",
+    "DFL-J03WPY",
+    "MET-1",
+    "MET-2",
+    "MET-3"
+   ],
+   "train_seeds": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "degradation_profile": 2
+  }
+ ],
  "data_sources": [
   "DFL open data, figshare 28196177, CC BY 4.0",
   "Metrica Sports sample-data, github.com/metrica-sports/sample-data"
@@ -57,9 +183,15 @@
  "bar_ath_data_used": false,
  "bar_ath_ground_truth_used": false,
  "validation": {
-  "cv_dev_8_matches_3_member_spellF1": 0.7547,
-  "heldout_2_dfl_matches_spellF1_dev_model": 0.7331,
-  "note": "external matches with simulated ATD-like noise; not a BAR-ATH estimate"
+  "heldout_2_dfl_profile2_noise_2_member_devonly_spellF1": 0.6946,
+  "heldout_2_dfl_profile1_noise_2_member_devonly_spellF1": 0.6738,
+  "heldout_2_dfl_profile2_noise_single_member_spellF1": [
+   0.6735,
+   0.6813
+  ],
+  "heldout_2_dfl_profile2_noise_profile1_single_member_spellF1": 0.6286,
+  "cv_dev_8_matches_3_member_profile1_spellF1": 0.7547,
+  "note": "Two held-out DFL matches x 3 degradation seeds, scored with the official metric. Dev-only members (8 matches, 3000 steps); the four members trained with the held-out matches have no clean held-out score. Simulated ATD-like noise: ranks methods, not a BAR-ATH estimate."
  },
- "trained_on": "NVIDIA GeForce RTX 5070, torch 2.11.0+cu128"
+ "trained_on": "Apple M3 (CPU and MPS), torch 2.11.0, macOS-26.5.1-arm64-arm-64bit"
 }
